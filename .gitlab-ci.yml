@@ -115,6 +115,7 @@ parity:
   script:
     - cd parity
     - RUST_IMAGE="$CHAOS_IMAGE" ./run.sh --job $JOB --fixture sample --chaos --manifest "$CI_PROJECT_DIR/jobs/$JOB/privacy-manifest.yaml"
+    - RUST_IMAGE="$IMAGE" ./run.sh --job $JOB --fixture edge --manifest "$CI_PROJECT_DIR/jobs/$JOB/privacy-manifest.yaml"
   after_script:
     - mv parity/runs runs || true
     - for f in runs/*/harness-error.txt; do [ -f "$f" ] && { cat "$f"; tail -n 40 "$(dirname "$f")/rust-job.log"; }; done; true

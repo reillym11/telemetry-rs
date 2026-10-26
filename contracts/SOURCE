@@ -1,5 +1,5 @@
 # Vendored by scripts/vendor-contracts.sh. Do not edit files under contracts/ by hand.
 # schemas, topics.yaml, fixtures/sample: data-contracts at this commit
-DATA_CONTRACTS_SHA=1afa95bfb44ed80c915814ad5410a7a77d688ce0
+DATA_CONTRACTS_SHA=b4ba80f4c6c69309620462898fc47b9e0dc72770
 # golden/<job>/: telemetry-parity golden/sample/<job> at this commit; CI runs this harness version
-TELEMETRY_PARITY_SHA=a5f0f54611cf54179cefb2949ccb40c2d0c42dc1
+TELEMETRY_PARITY_SHA=9c5ff19043b1506aa6bbbbbcc30df4bb510426ff
