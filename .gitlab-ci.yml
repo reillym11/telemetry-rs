@@ -40,7 +40,7 @@ cargo-build:
   script:
     - cargo build --release --locked
 
-image:
+docker-image:
   extends: .dind
   stage: build
   image: docker:27
