@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.telemetry.example/topics/vehicle.ota.status.v1.schema.json",
+  "title": "Vehicle OTA status",
+  "description": "Over-the-air update progress reported by the vehicle. A vehicle reports downloaded, then installed or failed (some stay at downloaded). failure_code is non-null if and only if state = failed. Every VIN gets exactly one heartbeat on this topic, as its last record, with event_time = that VIN's last non-heartbeat event_time on this topic + 2 hours (or window end + 2 hours if it has none).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "vin",
+    "event_time",
+    "event_type",
+    "producer_seq",
+    "schema_version",
+    "vehicle_model",
+    "fleet",
+    "market",
+    "firmware_version",
+    "campaign_id",
+    "from_version",
+    "target_version",
+    "state",
+    "failure_code"
+  ],
+  "x-topic": "vehicle.ota.status.v1",
+  "x-key": "vin",
+  "x-partitions": 6,
+  "x-cleanup-policy": "delete",
+  "x-partitioner": "murmur2",
+  "x-producer": "vehicle",
+  "x-consumers": [
+    "ota-status-tracker"
+  ],
+  "properties": {
+    "event_id": {
+      "$ref": "../common.schema.json#/$defs/event_id",
+      "x-privacy": "none"
+    },
+    "vin": {
+      "$ref": "../common.schema.json#/$defs/vin",
+      "x-privacy": "vehicle-id"
+    },
+    "event_time": {
+      "$ref": "../common.schema.json#/$defs/timestamp",
+      "x-privacy": "none",
+      "description": "When the event happened on the vehicle (true event time)."
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "ota_status",
+        "heartbeat"
+      ],
+      "x-privacy": "none",
+      "description": "heartbeat carries the envelope only; every domain field is null."
+    },
+    "producer_seq": {
+      "$ref": "../common.schema.json#/$defs/producer_seq",
+      "x-privacy": "none"
+    },
+    "schema_version": {
+      "$ref": "../common.schema.json#/$defs/schema_version",
+      "x-privacy": "none"
+    },
+    "vehicle_model": {
+      "$ref": "../common.schema.json#/$defs/vehicle_model",
+      "x-privacy": "none"
+    },
+    "fleet": {
+      "$ref": "../common.schema.json#/$defs/fleet",
+      "x-privacy": "none"
+    },
+    "market": {
+      "$ref": "../common.schema.json#/$defs/market",
+      "x-privacy": "none"
+    },
+    "firmware_version": {
+      "$ref": "../common.schema.json#/$defs/firmware_version",
+      "x-privacy": "none"
+    },
+    "campaign_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^OTA-[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}$",
+      "description": "e.g. OTA-2026.10.1",
+      "x-privacy": "none"
+    },
+    "from_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}$",
+      "x-privacy": "none"
+    },
+    "target_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}$",
+      "x-privacy": "none"
+    },
+    "state": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "downloaded",
+        "installed",
+        "failed",
+        null
+      ],
+      "x-privacy": "none"
+    },
+    "failure_code": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "E_DOWNLOAD_CORRUPT",
+        "E_INSTALL_PRECHECK",
+        "E_BATTERY_LOW",
+        "E_TIMEOUT",
+        null
+      ],
+      "description": "Non-null if and only if state = failed.",
+      "x-privacy": "none"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "heartbeat"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "campaign_id": {
+            "type": "null"
+          },
+          "from_version": {
+            "type": "null"
+          },
+          "target_version": {
+            "type": "null"
+          },
+          "state": {
+            "type": "null"
+          },
+          "failure_code": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "campaign_id": {
+            "type": "string"
+          },
+          "from_version": {
+            "type": "string"
+          },
+          "target_version": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "failed"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_code": {
+            "type": "string"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "failure_code": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}

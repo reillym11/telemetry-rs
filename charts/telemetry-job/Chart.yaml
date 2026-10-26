@@ -1,0 +1,6 @@
+apiVersion: v2
+name: telemetry-job
+description: Generic chart for one telemetry-rs stream job (StatefulSet, one replica per instance)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,84 @@
+{
+  "arguments": {
+    "hours": 6,
+    "seed": 42,
+    "start": "2026-10-01T00:00:00.000Z",
+    "vehicles": 20
+  },
+  "generator_version": "1",
+  "schema_version": "1",
+  "topics": {
+    "vehicle.battery.health.v1": {
+      "duplicates": 5,
+      "file": "vehicle.battery.health.v1.jsonl",
+      "late": 8,
+      "late_same_vin": 0,
+      "max_lateness_seconds": 299.834,
+      "records": 288,
+      "records_by_event_type": {
+        "battery_sample": 268,
+        "heartbeat": 20
+      },
+      "sha256": "1a1521136fe5497ea859de42b22b3c5c8adf9a42c5411a7b1c7e4e656664e668",
+      "unique_non_heartbeat_events": 263
+    },
+    "vehicle.charging.events.v1": {
+      "duplicates": 5,
+      "file": "vehicle.charging.events.v1.jsonl",
+      "late": 8,
+      "late_same_vin": 3,
+      "max_lateness_seconds": 236.218,
+      "records": 288,
+      "records_by_event_type": {
+        "charge_progress": 246,
+        "charge_start": 11,
+        "charge_stop": 11,
+        "heartbeat": 20
+      },
+      "sha256": "a6c3c5caf01977395fcbc602c1eada5a182494f45ba496d68108b3a4f0a3ada0",
+      "unique_non_heartbeat_events": 263
+    },
+    "vehicle.diagnostics.dtc.v1": {
+      "duplicates": 0,
+      "file": "vehicle.diagnostics.dtc.v1.jsonl",
+      "late": 0,
+      "late_same_vin": 0,
+      "max_lateness_seconds": 0.0,
+      "records": 25,
+      "records_by_event_type": {
+        "dtc": 5,
+        "heartbeat": 20
+      },
+      "sha256": "a85485951736d64f0bde3d4217d018481bbb3e1cd0ee35e93b653d58a8983724",
+      "unique_non_heartbeat_events": 5
+    },
+    "vehicle.ota.status.v1": {
+      "duplicates": 0,
+      "file": "vehicle.ota.status.v1.jsonl",
+      "late": 1,
+      "late_same_vin": 0,
+      "max_lateness_seconds": 159.665,
+      "records": 43,
+      "records_by_event_type": {
+        "heartbeat": 20,
+        "ota_status": 23
+      },
+      "sha256": "bf31c4a89df51aa6d931b18c3a765f8184777bd515ffd5091e72e601c33c554e",
+      "unique_non_heartbeat_events": 23
+    }
+  },
+  "totals": {
+    "duplicates": 10,
+    "late": 17,
+    "late_same_vin": 3,
+    "max_lateness_seconds": 299.834,
+    "records": 644
+  },
+  "warranty_signal_vins": [
+    "SYNM6ENAH6VAT6T2X"
+  ],
+  "window": {
+    "end": "2026-10-01T06:00:00.000Z",
+    "start": "2026-10-01T00:00:00.000Z"
+  }
+}

@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.telemetry.example/topics/vehicle.battery.health.v1.schema.json",
+  "title": "Vehicle battery health",
+  "description": "One battery_sample every 10 minutes while the vehicle is driving or charging. cell_voltage_delta_mv = round((cell_voltage_max_v - cell_voltage_min_v) * 1000). Every VIN gets exactly one heartbeat on this topic, as its last record, with event_time = that VIN's last non-heartbeat event_time on this topic + 2 hours (or window end + 2 hours if it has none).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "vin",
+    "event_time",
+    "event_type",
+    "producer_seq",
+    "schema_version",
+    "vehicle_model",
+    "fleet",
+    "market",
+    "firmware_version",
+    "soh_pct",
+    "cell_voltage_min_v",
+    "cell_voltage_max_v",
+    "cell_voltage_delta_mv",
+    "pack_temp_c",
+    "soc_pct",
+    "odometer_km"
+  ],
+  "x-topic": "vehicle.battery.health.v1",
+  "x-key": "vin",
+  "x-partitions": 6,
+  "x-cleanup-policy": "delete",
+  "x-partitioner": "murmur2",
+  "x-producer": "vehicle",
+  "x-consumers": [
+    "battery-health-aggregator"
+  ],
+  "properties": {
+    "event_id": {
+      "$ref": "../common.schema.json#/$defs/event_id",
+      "x-privacy": "none"
+    },
+    "vin": {
+      "$ref": "../common.schema.json#/$defs/vin",
+      "x-privacy": "vehicle-id"
+    },
+    "event_time": {
+      "$ref": "../common.schema.json#/$defs/timestamp",
+      "x-privacy": "none",
+      "description": "When the event happened on the vehicle (true event time)."
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "battery_sample",
+        "heartbeat"
+      ],
+      "x-privacy": "none",
+      "description": "heartbeat carries the envelope only; every domain field is null."
+    },
+    "producer_seq": {
+      "$ref": "../common.schema.json#/$defs/producer_seq",
+      "x-privacy": "none"
+    },
+    "schema_version": {
+      "$ref": "../common.schema.json#/$defs/schema_version",
+      "x-privacy": "none"
+    },
+    "vehicle_model": {
+      "$ref": "../common.schema.json#/$defs/vehicle_model",
+      "x-privacy": "none"
+    },
+    "fleet": {
+      "$ref": "../common.schema.json#/$defs/fleet",
+      "x-privacy": "none"
+    },
+    "market": {
+      "$ref": "../common.schema.json#/$defs/market",
+      "x-privacy": "none"
+    },
+    "firmware_version": {
+      "$ref": "../common.schema.json#/$defs/firmware_version",
+      "x-privacy": "none"
+    },
+    "soh_pct": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 80,
+      "maximum": 100,
+      "x-decimals": 2,
+      "description": "State of health.",
+      "x-privacy": "none"
+    },
+    "cell_voltage_min_v": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 2.5,
+      "maximum": 4.3,
+      "x-decimals": 3,
+      "x-privacy": "none"
+    },
+    "cell_voltage_max_v": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 2.5,
+      "maximum": 4.3,
+      "x-decimals": 3,
+      "x-privacy": "none"
+    },
+    "cell_voltage_delta_mv": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "round((cell_voltage_max_v - cell_voltage_min_v) * 1000). Normal 5-40; a steady rise past 60 is the warranty signal.",
+      "x-privacy": "none"
+    },
+    "pack_temp_c": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": -40,
+      "maximum": 80,
+      "x-decimals": 1,
+      "x-privacy": "none"
+    },
+    "soc_pct": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100,
+      "x-decimals": 1,
+      "x-privacy": "none"
+    },
+    "odometer_km": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "x-privacy": "none"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "heartbeat"
+          }
+        },
+        "required": [
+          "event_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "soh_pct": {
+            "type": "null"
+          },
+          "cell_voltage_min_v": {
+            "type": "null"
+          },
+          "cell_voltage_max_v": {
+            "type": "null"
+          },
+          "cell_voltage_delta_mv": {
+            "type": "null"
+          },
+          "pack_temp_c": {
+            "type": "null"
+          },
+          "soc_pct": {
+            "type": "null"
+          },
+          "odometer_km": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "soh_pct": {
+            "type": "number"
+          },
+          "cell_voltage_min_v": {
+            "type": "number"
+          },
+          "cell_voltage_max_v": {
+            "type": "number"
+          },
+          "cell_voltage_delta_mv": {
+            "type": "integer"
+          },
+          "pack_temp_c": {
+            "type": "number"
+          },
+          "soc_pct": {
+            "type": "number"
+          },
+          "odometer_km": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  ]
+}

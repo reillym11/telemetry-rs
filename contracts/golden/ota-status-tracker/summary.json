@@ -1,0 +1,20 @@
+{
+  "by_state": {
+    "downloaded": 1,
+    "failed": 1,
+    "installed": 10
+  },
+  "deps": {
+    "DATA_CONTRACTS_SHA": "1afa95bfb44ed80c915814ad5410a7a77d688ce0",
+    "TELEMETRY_RS_SHA": "",
+    "TELEMETRY_SPARK_JOBS_SHA": "20e81ac30fd5db261ed86012146bd5cedf30c110"
+  },
+  "duplicates": 0,
+  "effective_records": 12,
+  "fixture": "sample",
+  "input_records": 43,
+  "job": "ota-status-tracker",
+  "manifest_sha256": "5c911f7ba12cd71ff628a4ad768ed4d4713ecd561539ccced9549093eb9cb47e",
+  "nondeterministic_keys": 0,
+  "output_records": 12
+}

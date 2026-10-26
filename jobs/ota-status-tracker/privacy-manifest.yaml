@@ -1,0 +1,42 @@
+# Privacy manifest for ota-status-tracker. telemetry-parity check E4 compares inputs, outputs,
+# state_stores and sensitive_fields with what it observes; the other keys document the job.
+# Topic names are the harness names (rust.<topic>, rust.<job>.state.<store>). In production the
+# output is ota.status.latest.v1 and the state topic is <STATE_TOPIC_PREFIX>.latest.
+inputs: [vehicle.ota.status.v1]
+outputs: [rust.ota.status.latest.v1]
+state_stores: [rust.ota-status-tracker.state.latest]
+sensitive_fields:
+  rust.ota.status.latest.v1: [vin]
+  rust.ota-status-tracker.state.latest: [vin]
+
+fields_read:
+  vehicle.ota.status.v1:
+    event_id: none
+    vin: vehicle-id
+    event_time: none
+    event_type: none
+    producer_seq: none
+    campaign_id: none
+    target_version: none
+    state: none
+    failure_code: none
+fields_written:
+  ota.status.latest.v1:
+    vin: vehicle-id
+    campaign_id: none
+    state: none
+    target_version: none
+    failure_code: none
+    last_event_id: none
+    last_event_time: none
+state:
+  latest:
+    topic: <STATE_TOPIC_PREFIX>.latest
+    cleanup_policy: compact
+    key: '"vin|campaign_id" as a JSON string'
+    value_fields: [vin, campaign_id, event_id, event_time_ms, producer_seq, state, target_version, failure_code]
+    sensitive_fields: [vin]
+    retention: none; one record per (vin, campaign_id), kept until compaction replaces it
+    legacy: the Spark job held the same per-key state in its checkpoint directory (flatMapGroupsWithState state store), not in Kafka
+transformations:
+  vin: copied unchanged into the output value, the output key (vin|campaign_id) and the state topic key and value; never logged

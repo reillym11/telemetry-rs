@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.telemetry.example/topics/battery.health.hourly.schema.json",
+  "title": "Hourly battery health per vehicle (Parquet)",
+  "description": "Hourly tumbling-window aggregates of battery_sample events from vehicle.battery.health.v1, one row per (vin, window_start) with at least one sample. Windows are aligned to the UTC hour. Not a Kafka topic: written as Parquet to x-sink, partitioned by date, so the Kafka annotations are null. All derivations are in event time and use inputs only: deduplicate by event_id first, ignore arrival order, never read a processing-time clock. Input lateness is at most 300 seconds, so jobs must allow at least 300 seconds of lateness and drop nothing. HALF_UP rounding means: round to the nearest value at the stated scale, ties away from zero, computed on exact decimal values (integer arithmetic), never on binary floating point.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "vin",
+    "date",
+    "window_start",
+    "window_end",
+    "sample_count",
+    "soh_pct_min",
+    "soh_pct_avg",
+    "cell_voltage_delta_mv_min",
+    "cell_voltage_delta_mv_max",
+    "pack_temp_c_max"
+  ],
+  "x-topic": "battery.health.hourly",
+  "x-key": null,
+  "x-partitions": null,
+  "x-cleanup-policy": null,
+  "x-partitioner": null,
+  "x-producer": "battery-health-aggregator",
+  "x-consumers": [
+    "warranty-analytics"
+  ],
+  "x-sink": "s3a://telemetry-lake/battery_health_hourly",
+  "x-partition-by": [
+    "date"
+  ],
+  "x-format": "parquet",
+  "properties": {
+    "vin": {
+      "$ref": "../common.schema.json#/$defs/vin",
+      "x-privacy": "vehicle-id",
+      "x-parquet-type": "STRING"
+    },
+    "date": {
+      "$ref": "../common.schema.json#/$defs/date",
+      "x-privacy": "none",
+      "description": "UTC date of window_start. Partition column.",
+      "x-parquet-type": "DATE"
+    },
+    "window_start": {
+      "$ref": "../common.schema.json#/$defs/timestamp",
+      "x-privacy": "none",
+      "description": "Start of the UTC hour, inclusive.",
+      "x-parquet-type": "TIMESTAMP_MILLIS_UTC"
+    },
+    "window_end": {
+      "$ref": "../common.schema.json#/$defs/timestamp",
+      "x-privacy": "none",
+      "description": "window_start + 1 hour, exclusive.",
+      "x-parquet-type": "TIMESTAMP_MILLIS_UTC"
+    },
+    "sample_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Distinct battery_sample event_ids in the window.",
+      "x-privacy": "none",
+      "x-parquet-type": "INT32"
+    },
+    "soh_pct_min": {
+      "type": "number",
+      "minimum": 80,
+      "maximum": 100,
+      "x-decimals": 2,
+      "x-privacy": "none",
+      "x-parquet-type": "DECIMAL(5,2)"
+    },
+    "soh_pct_avg": {
+      "type": "number",
+      "minimum": 80,
+      "maximum": 100,
+      "x-decimals": 2,
+      "description": "HALF_UP(sum of soh_pct in hundredths / sample_count) / 100. Example: samples 95.01 and 95.02 sum to 19003 hundredths; 19003 / 2 = 9501.5, which rounds to 9502, so the value is 95.02.",
+      "x-privacy": "none",
+      "x-parquet-type": "DECIMAL(5,2)"
+    },
+    "cell_voltage_delta_mv_min": {
+      "type": "integer",
+      "minimum": 0,
+      "x-privacy": "none",
+      "x-parquet-type": "INT32"
+    },
+    "cell_voltage_delta_mv_max": {
+      "type": "integer",
+      "minimum": 0,
+      "x-privacy": "none",
+      "x-parquet-type": "INT32"
+    },
+    "pack_temp_c_max": {
+      "type": "number",
+      "minimum": -40,
+      "maximum": 80,
+      "x-decimals": 1,
+      "x-privacy": "none",
+      "x-parquet-type": "DECIMAL(4,1)"
+    }
+  }
+}
