@@ -5,9 +5,9 @@
     "installed": 10
   },
   "deps": {
-    "DATA_CONTRACTS_SHA": "1afa95bfb44ed80c915814ad5410a7a77d688ce0",
+    "DATA_CONTRACTS_SHA": "b4ba80f4c6c69309620462898fc47b9e0dc72770",
     "TELEMETRY_RS_SHA": "",
-    "TELEMETRY_SPARK_JOBS_SHA": "20e81ac30fd5db261ed86012146bd5cedf30c110"
+    "TELEMETRY_SPARK_JOBS_SHA": "169768600588ed628f2618af54ea6e2f8b6039c1"
   },
   "duplicates": 0,
   "effective_records": 12,
