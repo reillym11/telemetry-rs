@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.telemetry.example/topics/ota.status.latest.v1.schema.json",
+  "title": "Latest OTA status per vehicle and campaign",
+  "description": "Latest OTA state per (vin, campaign_id), built from vehicle.ota.status.v1 (heartbeats ignored). All derivations are in event time and use inputs only: deduplicate by event_id first, ignore arrival order, never read a processing-time clock. Input lateness is at most 300 seconds, so jobs must allow at least 300 seconds of lateness and drop nothing. Keyed by 'vin|campaign_id' (the two values joined by '|', UTF-8) instead of vin: this is a documented exception to VIN keying, because log compaction needs one key per vehicle and campaign. 'Latest' means the ota_status event with the highest producer_seq for that key (equivalently the latest event_time), regardless of arrival order. Jobs may emit intermediate records; parity compares the last record per key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "vin",
+    "campaign_id",
+    "state",
+    "target_version",
+    "failure_code",
+    "last_event_id",
+    "last_event_time"
+  ],
+  "x-topic": "ota.status.latest.v1",
+  "x-key": "vin|campaign_id",
+  "x-partitions": 6,
+  "x-cleanup-policy": "compact",
+  "x-partitioner": "murmur2",
+  "x-producer": "ota-status-tracker",
+  "x-consumers": [
+    "ota-orchestrator",
+    "service"
+  ],
+  "properties": {
+    "vin": {
+      "$ref": "../common.schema.json#/$defs/vin",
+      "x-privacy": "vehicle-id"
+    },
+    "campaign_id": {
+      "type": "string",
+      "pattern": "^OTA-[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}$",
+      "x-privacy": "none"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "downloaded",
+        "installed",
+        "failed"
+      ],
+      "x-privacy": "none"
+    },
+    "target_version": {
+      "type": "string",
+      "pattern": "^[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}$",
+      "x-privacy": "none"
+    },
+    "failure_code": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "E_DOWNLOAD_CORRUPT",
+        "E_INSTALL_PRECHECK",
+        "E_BATTERY_LOW",
+        "E_TIMEOUT",
+        null
+      ],
+      "description": "Non-null if and only if state = failed.",
+      "x-privacy": "none"
+    },
+    "last_event_id": {
+      "$ref": "../common.schema.json#/$defs/event_id",
+      "x-privacy": "none",
+      "description": "event_id of the event this record reflects."
+    },
+    "last_event_time": {
+      "$ref": "../common.schema.json#/$defs/timestamp",
+      "x-privacy": "none",
+      "description": "event_time of the event this record reflects."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "failed"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure_code": {
+            "type": "string"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "failure_code": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}

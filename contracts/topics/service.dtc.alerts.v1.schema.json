@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.telemetry.example/topics/service.dtc.alerts.v1.schema.json",
+  "title": "Service DTC alerts",
+  "description": "Alerts for service scheduling, built from vehicle.diagnostics.dtc.v1. All derivations are in event time and use inputs only: deduplicate by event_id first, ignore arrival order, never read a processing-time clock. Input lateness is at most 300 seconds, so jobs must allow at least 300 seconds of lateness and drop nothing. Routing rule: emit one alert per distinct event_id with event_type = dtc, severity >= 3 and status = active; everything else is dropped. alert_id = UUIDv5(namespace f5179d15-0fd7-5b5f-bf53-0852eb22d3d5, name = the source event_id in lowercase canonical form, UTF-8). lat and lon are the source precise coordinates rounded to 2 decimals with HALF_UP: take the coordinate as an integer number of 1e-5 degrees (exact, since inputs have 5 decimals), round to the nearest multiple of 1000 with ties away from zero, then divide by 100000. HALF_UP rounding means: round to the nearest value at the stated scale, ties away from zero, computed on exact decimal values (integer arithmetic), never on binary floating point.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "alert_id",
+    "vin",
+    "dtc_code",
+    "severity",
+    "ecu",
+    "event_time",
+    "lat",
+    "lon"
+  ],
+  "x-topic": "service.dtc.alerts.v1",
+  "x-key": "vin",
+  "x-partitions": 6,
+  "x-cleanup-policy": "delete",
+  "x-partitioner": "murmur2",
+  "x-producer": "diagnostics-dtc-router",
+  "x-consumers": [
+    "service-scheduling"
+  ],
+  "properties": {
+    "alert_id": {
+      "$ref": "../common.schema.json#/$defs/uuid",
+      "x-privacy": "vehicle-id",
+      "description": "UUIDv5 of the source event_id; see the schema description."
+    },
+    "vin": {
+      "$ref": "../common.schema.json#/$defs/vin",
+      "x-privacy": "vehicle-id"
+    },
+    "dtc_code": {
+      "type": "string",
+      "pattern": "^[PBCU][0-9A-F]{4}$",
+      "x-privacy": "none"
+    },
+    "severity": {
+      "type": "integer",
+      "minimum": 3,
+      "maximum": 5,
+      "x-privacy": "none"
+    },
+    "ecu": {
+      "type": "string",
+      "enum": [
+        "central_compute",
+        "zone_left",
+        "zone_right",
+        "bms",
+        "inverter_front",
+        "inverter_rear"
+      ],
+      "x-privacy": "none"
+    },
+    "event_time": {
+      "$ref": "../common.schema.json#/$defs/timestamp",
+      "x-privacy": "none",
+      "description": "event_time of the source DTC event."
+    },
+    "lat": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90,
+      "x-privacy": "coarse-location",
+      "x-precision": 2
+    },
+    "lon": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180,
+      "x-privacy": "coarse-location",
+      "x-precision": 2
+    }
+  }
+}

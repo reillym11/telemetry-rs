@@ -1,0 +1,145 @@
+# Topic registry. Every entry must agree with the x-* annotations in its schema;
+# tests/test_registry.py enforces this. sensitive_fields lists every property whose
+# x-privacy is not none, in schema order. key: field names joined by '|' (UTF-8).
+# partitioner: murmur2 is the Java client default; librdkafka clients must set
+# partitioner=murmur2_random to place keys on the same partitions.
+version: 1
+topics:
+- name: vehicle.charging.events.v1
+  kind: kafka-topic
+  direction: input
+  schema: contracts/topics/vehicle.charging.events.v1.schema.json
+  key: vin
+  partitions: 6
+  cleanup_policy: delete
+  partitioner: murmur2
+  producer: vehicle
+  consumers:
+  - charging-session-builder
+  sensitive_fields:
+  - field: vin
+    privacy: vehicle-id
+  - field: charger_lat
+    privacy: precise-location
+  - field: charger_lon
+    privacy: precise-location
+- name: vehicle.ota.status.v1
+  kind: kafka-topic
+  direction: input
+  schema: contracts/topics/vehicle.ota.status.v1.schema.json
+  key: vin
+  partitions: 6
+  cleanup_policy: delete
+  partitioner: murmur2
+  producer: vehicle
+  consumers:
+  - ota-status-tracker
+  sensitive_fields:
+  - field: vin
+    privacy: vehicle-id
+- name: vehicle.battery.health.v1
+  kind: kafka-topic
+  direction: input
+  schema: contracts/topics/vehicle.battery.health.v1.schema.json
+  key: vin
+  partitions: 6
+  cleanup_policy: delete
+  partitioner: murmur2
+  producer: vehicle
+  consumers:
+  - battery-health-aggregator
+  sensitive_fields:
+  - field: vin
+    privacy: vehicle-id
+- name: vehicle.diagnostics.dtc.v1
+  kind: kafka-topic
+  direction: input
+  schema: contracts/topics/vehicle.diagnostics.dtc.v1.schema.json
+  key: vin
+  partitions: 6
+  cleanup_policy: delete
+  partitioner: murmur2
+  producer: vehicle
+  consumers:
+  - diagnostics-dtc-router
+  sensitive_fields:
+  - field: vin
+    privacy: vehicle-id
+  - field: lat
+    privacy: precise-location
+  - field: lon
+    privacy: precise-location
+- name: charging.sessions.v1
+  kind: kafka-topic
+  direction: output
+  schema: contracts/topics/charging.sessions.v1.schema.json
+  key: vin
+  partitions: 6
+  cleanup_policy: delete
+  partitioner: murmur2
+  producer: charging-session-builder
+  consumers:
+  - service
+  - energy-insights
+  sensitive_fields:
+  - field: session_id
+    privacy: vehicle-id
+  - field: vin
+    privacy: vehicle-id
+  - field: charger_lat
+    privacy: precise-location
+  - field: charger_lon
+    privacy: precise-location
+- name: ota.status.latest.v1
+  kind: kafka-topic
+  direction: output
+  schema: contracts/topics/ota.status.latest.v1.schema.json
+  key: vin|campaign_id
+  partitions: 6
+  cleanup_policy: compact
+  partitioner: murmur2
+  producer: ota-status-tracker
+  consumers:
+  - ota-orchestrator
+  - service
+  sensitive_fields:
+  - field: vin
+    privacy: vehicle-id
+- name: battery.health.hourly
+  kind: parquet-sink
+  direction: output
+  schema: contracts/topics/battery.health.hourly.schema.json
+  key: null
+  partitions: null
+  cleanup_policy: null
+  partitioner: null
+  producer: battery-health-aggregator
+  consumers:
+  - warranty-analytics
+  sink: s3a://telemetry-lake/battery_health_hourly
+  partition_by:
+  - date
+  format: parquet
+  sensitive_fields:
+  - field: vin
+    privacy: vehicle-id
+- name: service.dtc.alerts.v1
+  kind: kafka-topic
+  direction: output
+  schema: contracts/topics/service.dtc.alerts.v1.schema.json
+  key: vin
+  partitions: 6
+  cleanup_policy: delete
+  partitioner: murmur2
+  producer: diagnostics-dtc-router
+  consumers:
+  - service-scheduling
+  sensitive_fields:
+  - field: alert_id
+    privacy: vehicle-id
+  - field: vin
+    privacy: vehicle-id
+  - field: lat
+    privacy: coarse-location
+  - field: lon
+    privacy: coarse-location

@@ -1,0 +1,46 @@
+# Required per job (see values/<job>.yaml).
+job: ""
+image:
+  repository: registry.gitlab.com/congition-demo-group/telemetry-rs
+  tag: ""
+  pullPolicy: IfNotPresent
+
+kafka:
+  bootstrap: kafka:9092
+inputTopics: ""
+outputTopic: ""
+consumerGroup: ""
+# TRANSACTIONAL_ID and GROUP_INSTANCE_ID are <transactionalIdPrefix>-<pod name>, stable across restarts.
+transactionalIdPrefix: ""
+stateTopicPrefix: ""
+
+batch:
+  maxRecords: 500
+  maxMs: 200
+txnTimeoutMs: 60000
+logLevel: info
+metricsPort: 9090
+extraEnv: []
+
+# A transactional.id must belong to one live process at a time, so the job runs one pod per id.
+replicas: 1
+terminationGracePeriodSeconds: 30
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+podDisruptionBudget:
+  enabled: true
+  # With one replica, minAvailable: 1 would block every node drain. maxUnavailable: 1 allows the
+  # drain; the restarted pod restores state from its changelog topic.
+  maxUnavailable: 1
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}

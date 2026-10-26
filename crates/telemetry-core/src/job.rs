@@ -1,0 +1,33 @@
+//! The interface a port implements. Everything Kafka-related lives in the processor.
+
+use anyhow::Result;
+
+use crate::state::StateStore;
+
+/// One encoded output record. The key decides the partition (murmur2, as the Java client does).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Record {
+    pub key: String,
+    pub value: Vec<u8>,
+}
+
+pub trait Job: Send + 'static {
+    type Input;
+    type Output;
+
+    /// Decode one input value. `Ok(None)` skips the record (for example a heartbeat); its offset
+    /// still commits. `Err` also skips it and is counted, never logged with the payload.
+    fn decode(&self, payload: &[u8]) -> Result<Option<Self::Input>>;
+
+    /// Apply one record. Read and write state only through the job's [`KeyedState`] stores: writes
+    /// are staged and become visible to later records in the same transaction, and are applied for
+    /// good only after the transaction commits.
+    ///
+    /// [`KeyedState`]: crate::state::KeyedState
+    fn process(&mut self, input: Self::Input) -> Result<Vec<Self::Output>>;
+
+    fn encode(&self, output: &Self::Output) -> Result<Record>;
+
+    /// Every state store the job owns. The order must be stable.
+    fn stores(&mut self) -> Vec<&mut dyn StateStore>;
+}

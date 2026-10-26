@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = ["crates/telemetry-core", "jobs/ota-status-tracker"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.98.1"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+rdkafka = { version = "=0.38.0", default-features = false, features = ["cmake-build"] }
+# librdkafka 2.12.1 (rdkafka-sys 4.10) includes curl.h in a CMake build without curl; 2.10.0 does not.
+rdkafka-sys = { version = "=4.9.0", default-features = false }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+chrono = { version = "=0.4.42", default-features = false, features = ["std", "alloc"] }
+tracing = "=0.1.41"
+tracing-subscriber = { version = "=0.3.20", features = ["json", "env-filter"] }
+tokio = { version = "=1.53.3", features = ["rt", "rt-multi-thread", "net", "signal", "macros", "time"] }
+axum = { version = "=0.8.6", default-features = false, features = ["tokio", "http1"] }
+prometheus-client = "=0.24.0"
+anyhow = "=1.0.104"
+jsonschema = { version = "=0.56.0", default-features = false }
+proptest = "=1.9.0"
+telemetry-core = { path = "crates/telemetry-core" }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

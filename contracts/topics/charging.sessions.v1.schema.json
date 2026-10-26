@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.telemetry.example/topics/charging.sessions.v1.schema.json",
+  "title": "Charging sessions",
+  "description": "One record per charging session, built from vehicle.charging.events.v1. All derivations are in event time and use inputs only: deduplicate by event_id first, ignore arrival order, never read a processing-time clock. Input lateness is at most 300 seconds, so jobs must allow at least 300 seconds of lateness and drop nothing. Session boundaries, per VIN, ordering non-heartbeat and heartbeat charging events by event_time: a session starts at a charge_start and contains the following charge_progress/charge_stop events. It closes with close_reason = charge_stop at the first charge_stop. It closes with close_reason = gap_timeout when the next event for that VIN on the topic (any event_type, including heartbeat or a new charge_start) has event_time more than 30 minutes (1800000 ms) after the session's last event. Events outside a session are ignored. session_id = UUIDv5(namespace f5179d15-0fd7-5b5f-bf53-0852eb22d3d5, name = vin + '|' + event_id of the charge_start), with the event_id in lowercase canonical form and the name encoded as UTF-8 (RFC 9562 section 5.5). The namespace is UUIDv5(NAMESPACE_DNS, 'contracts.telemetry.example'). Field rules: connector_type, charger_type, charger_lat, charger_lon and start_soc_pct come from the charge_start; start_time is its event_time; end_time is the event_time of the session's last event (for gap_timeout this is the last event, not the last event + 30 minutes); energy_added_kwh and end_soc_pct come from the last event; peak_power_kw is the max power_kw over the session; event_count is the number of distinct event_ids in the session, including charge_start and charge_stop.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "session_id",
+    "vin",
+    "fleet",
+    "market",
+    "connector_type",
+    "charger_type",
+    "start_time",
+    "end_time",
+    "close_reason",
+    "energy_added_kwh",
+    "peak_power_kw",
+    "start_soc_pct",
+    "end_soc_pct",
+    "event_count",
+    "charger_lat",
+    "charger_lon"
+  ],
+  "x-topic": "charging.sessions.v1",
+  "x-key": "vin",
+  "x-partitions": 6,
+  "x-cleanup-policy": "delete",
+  "x-partitioner": "murmur2",
+  "x-producer": "charging-session-builder",
+  "x-consumers": [
+    "service",
+    "energy-insights"
+  ],
+  "properties": {
+    "session_id": {
+      "$ref": "../common.schema.json#/$defs/uuid",
+      "x-privacy": "vehicle-id",
+      "description": "UUIDv5 over vin|charge_start event_id; see the schema description."
+    },
+    "vin": {
+      "$ref": "../common.schema.json#/$defs/vin",
+      "x-privacy": "vehicle-id"
+    },
+    "fleet": {
+      "$ref": "../common.schema.json#/$defs/fleet",
+      "x-privacy": "none"
+    },
+    "market": {
+      "$ref": "../common.schema.json#/$defs/market",
+      "x-privacy": "none"
+    },
+    "connector_type": {
+      "type": "string",
+      "enum": [
+        "NACS",
+        "CCS1",
+        "J1772"
+      ],
+      "x-privacy": "none"
+    },
+    "charger_type": {
+      "type": "string",
+      "enum": [
+        "home",
+        "ac_l2",
+        "dc_fast"
+      ],
+      "x-privacy": "none"
+    },
+    "start_time": {
+      "$ref": "../common.schema.json#/$defs/timestamp",
+      "x-privacy": "none"
+    },
+    "end_time": {
+      "$ref": "../common.schema.json#/$defs/timestamp",
+      "x-privacy": "none"
+    },
+    "close_reason": {
+      "type": "string",
+      "enum": [
+        "charge_stop",
+        "gap_timeout"
+      ],
+      "x-privacy": "none"
+    },
+    "energy_added_kwh": {
+      "type": "number",
+      "minimum": 0,
+      "x-decimals": 3,
+      "x-privacy": "none"
+    },
+    "peak_power_kw": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 400,
+      "x-decimals": 1,
+      "x-privacy": "none"
+    },
+    "start_soc_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "x-decimals": 1,
+      "x-privacy": "none"
+    },
+    "end_soc_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "x-decimals": 1,
+      "x-privacy": "none"
+    },
+    "event_count": {
+      "type": "integer",
+      "minimum": 1,
+      "x-privacy": "none"
+    },
+    "charger_lat": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90,
+      "x-privacy": "precise-location",
+      "x-precision": 5
+    },
+    "charger_lon": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180,
+      "x-privacy": "precise-location",
+      "x-precision": 5
+    }
+  }
+}
