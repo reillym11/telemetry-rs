@@ -17,3 +17,4 @@ tokio.workspace = true
 axum.workspace = true
 prometheus-client.workspace = true
 anyhow.workspace = true
+libc.workspace = true

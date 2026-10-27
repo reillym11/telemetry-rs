@@ -123,7 +123,7 @@ parity:
     - docker pull "$SPARK_RUNNER_IMAGE" || unset SPARK_RUNNER_IMAGE
   script:
     - cd parity
-    - RUST_IMAGE="$CHAOS_IMAGE" ./run.sh --job $JOB --fixture sample --chaos --manifest "$CI_PROJECT_DIR/jobs/$JOB/privacy-manifest.yaml"
+    - RUST_IMAGE="$CHAOS_IMAGE" ./run.sh --job $JOB --fixture sample --chaos --chaos-mode failpoint --manifest "$CI_PROJECT_DIR/jobs/$JOB/privacy-manifest.yaml"
     - RUST_IMAGE="$IMAGE" ./run.sh --job $JOB --fixture edge --manifest "$CI_PROJECT_DIR/jobs/$JOB/privacy-manifest.yaml"
   after_script:
     - mv parity/runs runs || true

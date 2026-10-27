@@ -21,6 +21,7 @@ tokio = { version = "=1.53.3", features = ["rt", "rt-multi-thread", "net", "sign
 axum = { version = "=0.8.6", default-features = false, features = ["tokio", "http1"] }
 prometheus-client = "=0.24.0"
 anyhow = "=1.0.104"
+libc = "=0.2.191"
 jsonschema = { version = "=0.56.0", default-features = false }
 proptest = "=1.9.0"
 sha1 = { version = "=0.10.6", default-features = false }
