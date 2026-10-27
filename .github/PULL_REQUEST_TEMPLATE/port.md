@@ -13,7 +13,7 @@
 
 ## Parity report
 
-<!-- Link the "Parity report" artifact of this MR's pipeline. Paste the check table. -->
+<!-- Link the "Parity report" artifact of this PR's ci run. Paste the check table. -->
 
 | Fixture | Chaos | Result | Report |
 |---|---|---|---|

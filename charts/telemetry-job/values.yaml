@@ -1,7 +1,7 @@
 # Required per job (see values/<job>.yaml).
 job: ""
 image:
-  repository: registry.gitlab.com/congition-demo-group/telemetry-rs
+  repository: ghcr.io/reillym11/telemetry-rs
   tag: ""
   pullPolicy: IfNotPresent
 
