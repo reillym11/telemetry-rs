@@ -3,7 +3,7 @@
 
 pub mod reducer;
 
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -31,11 +31,22 @@ impl Default for Watermark {
     }
 }
 
-/// One buffered row of the open batch. Slots `vin|0`, `vin|1`, ... fill in arrival order and are
-/// cleared (`event: None`) when the batch ends, so the changelog never needs a tombstone.
+/// Per-VIN scalars of the legacy `SessionState` plus its timeout. The pending events are in `events`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VinState {
+    pub vin: String,
+    pub max_seen_ms: i64,
+    pub emitted_until_ms: i64,
+    pub timeout_ms: Option<i64>,
+}
+
+/// One event slot of a VIN. Slots `vin|0`, `vin|1`, ... are used from 0 without gaps: first the
+/// pending events (`pending`), in order, then the open batch's rows, in arrival order. A slot no
+/// longer needed is cleared to `event: None`, so the changelog never needs a tombstone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Slot {
     pub vin: String,
+    pub pending: bool,
     pub event: Option<ChargingEvent>,
 }
 
@@ -43,11 +54,11 @@ fn slot_key(vin: &str, i: usize) -> String {
     format!("{vin}|{i}")
 }
 
-/// A Spark micro-batch hands each VIN all of its new rows at once, so records are buffered (`batch`)
-/// and applied in `end_batch`, followed by the timeouts of the final no-data batch.
+/// A Spark micro-batch hands each VIN all of its new rows at once, so records are buffered and
+/// applied in `end_batch`, followed by the timeouts of the final no-data batch.
 pub struct ChargingSessionBuilder {
-    sessions: KeyedState<String, SessionState>,
-    batch: KeyedState<String, Slot>,
+    sessions: KeyedState<String, VinState>,
+    events: KeyedState<String, Slot>,
     watermark: KeyedState<String, Watermark>,
 }
 
@@ -55,7 +66,7 @@ impl Default for ChargingSessionBuilder {
     fn default() -> Self {
         ChargingSessionBuilder {
             sessions: KeyedState::new("sessions"),
-            batch: KeyedState::new("batch"),
+            events: KeyedState::new("events"),
             watermark: KeyedState::new("watermark"),
         }
     }
@@ -69,23 +80,57 @@ impl ChargingSessionBuilder {
             .unwrap_or_default()
     }
 
-    /// `flatMapGroupsWithState` for one VIN: its new rows, or none when its timeout fires.
-    fn step(
-        &mut self,
-        vin: &str,
-        events: &[ChargingEvent],
-        watermark_ms: i64,
-        out: &mut Vec<ChargingSession>,
-    ) -> Result<()> {
+    /// The VIN's occupied slots, in slot order.
+    fn slots(&self, vin: &str) -> Vec<(bool, ChargingEvent)> {
+        (0..)
+            .map_while(|i| {
+                let s = self.events.get(&slot_key(vin, i))?;
+                Some((s.pending, s.event.clone()?))
+            })
+            .collect()
+    }
+
+    /// `flatMapGroupsWithState` for one VIN: its new rows of the batch, or none when its timeout fires.
+    fn step(&mut self, vin: &str, watermark_ms: i64, out: &mut Vec<ChargingSession>) -> Result<()> {
         let key = vin.to_string();
-        let state = self
-            .sessions
-            .get(&key)
-            .cloned()
-            .unwrap_or_else(|| SessionState::empty(vin));
-        let (next, emitted) = reducer::advance(&state, events, watermark_ms)?;
+        let slots = self.slots(vin);
+        let scalars = self.sessions.get(&key).cloned();
+        let mut state = SessionState::empty(vin);
+        if let Some(s) = scalars {
+            state.max_seen_ms = s.max_seen_ms;
+            state.emitted_until_ms = s.emitted_until_ms;
+            state.timeout_ms = s.timeout_ms;
+        }
+        let mut rows = Vec::new();
+        for (pending, e) in &slots {
+            if *pending {
+                state.pending.push(e.clone());
+            } else {
+                rows.push(e.clone());
+            }
+        }
+        let (next, emitted) = reducer::advance(&state, &rows, watermark_ms)?;
         out.extend(emitted);
-        self.sessions.put(key, next)
+        for i in 0..slots.len().max(next.pending.len()) {
+            let event = next.pending.get(i).cloned();
+            self.events.put(
+                slot_key(vin, i),
+                Slot {
+                    vin: key.clone(),
+                    pending: event.is_some(),
+                    event,
+                },
+            )?;
+        }
+        self.sessions.put(
+            key.clone(),
+            VinState {
+                vin: key,
+                max_seen_ms: next.max_seen_ms,
+                emitted_until_ms: next.emitted_until_ms,
+                timeout_ms: next.timeout_ms,
+            },
+        )
     }
 
     /// Spark's timeout pass: every VIN whose timeout is strictly below the watermark, in VIN order.
@@ -103,7 +148,7 @@ impl ChargingSessionBuilder {
             .collect();
         due.sort();
         for vin in due {
-            self.step(&vin, &[], watermark_ms, out)?;
+            self.step(&vin, watermark_ms, out)?;
         }
         Ok(())
     }
@@ -129,21 +174,23 @@ impl Job for ChargingSessionBuilder {
         }
         // Create the VIN's state here, so it lives on the VIN's input partition.
         if self.sessions.get(&e.vin).is_none() {
-            self.sessions
-                .put(e.vin.clone(), SessionState::empty(&e.vin))?;
+            let s = SessionState::empty(&e.vin);
+            self.sessions.put(
+                e.vin.clone(),
+                VinState {
+                    vin: s.vin,
+                    max_seen_ms: s.max_seen_ms,
+                    emitted_until_ms: s.emitted_until_ms,
+                    timeout_ms: s.timeout_ms,
+                },
+            )?;
         }
-        let mut i = 0;
-        while self
-            .batch
-            .get(&slot_key(&e.vin, i))
-            .is_some_and(|s| s.event.is_some())
-        {
-            i += 1;
-        }
-        self.batch.put(
+        let i = self.slots(&e.vin).len();
+        self.events.put(
             slot_key(&e.vin, i),
             Slot {
                 vin: e.vin.clone(),
+                pending: false,
                 event: Some(e),
             },
         )?;
@@ -154,34 +201,18 @@ impl Job for ChargingSessionBuilder {
     /// advances and the final no-data batch fires the timeouts below it.
     fn end_batch(&mut self) -> Result<Vec<ChargingSession>> {
         let wm = self.watermark();
-        let mut rows: BTreeMap<String, Vec<(usize, ChargingEvent)>> = BTreeMap::new();
-        for k in self.batch.keys() {
-            let Some(Slot {
-                vin,
-                event: Some(e),
-            }) = self.batch.get(&k).cloned()
-            else {
-                continue;
-            };
-            let i = k
-                .rsplit('|')
-                .next()
-                .and_then(|i| i.parse().ok())
-                .unwrap_or(0);
-            self.batch.put(
-                k,
-                Slot {
-                    vin: vin.clone(),
-                    event: None,
-                },
-            )?;
-            rows.entry(vin).or_default().push((i, e));
-        }
+        let with_rows: BTreeSet<String> = self
+            .events
+            .keys()
+            .into_iter()
+            .filter_map(|k| {
+                let s = self.events.get(&k)?;
+                (!s.pending && s.event.is_some()).then(|| s.vin.clone())
+            })
+            .collect();
         let mut out = Vec::new();
-        for (vin, mut slots) in rows {
-            slots.sort_by_key(|(i, _)| *i);
-            let events: Vec<ChargingEvent> = slots.into_iter().map(|(_, e)| e).collect();
-            self.step(&vin, &events, wm.current_ms, &mut out)?;
+        for vin in with_rows {
+            self.step(&vin, wm.current_ms, &mut out)?;
         }
         self.fire_timeouts(wm.current_ms, &mut out)?;
         if let Some(max) = wm.batch_max_ms {
@@ -210,6 +241,6 @@ impl Job for ChargingSessionBuilder {
     }
 
     fn stores(&mut self) -> Vec<&mut dyn StateStore> {
-        vec![&mut self.sessions, &mut self.batch, &mut self.watermark]
+        vec![&mut self.sessions, &mut self.events, &mut self.watermark]
     }
 }
