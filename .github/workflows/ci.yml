@@ -83,6 +83,8 @@ jobs:
       - name: parity
         env:
           GIT_BASE: https://github.com/reillym11
+          # runners map localhost to ::1 too, where the 127.0.0.1-bound Kafka and MinIO ports refuse connections
+          KAFKA_EXTERNAL_HOST: 127.0.0.1
           RS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           source contracts/SOURCE
