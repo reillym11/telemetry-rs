@@ -12,6 +12,7 @@ stronger.
 | Input | `vehicle.charging.events.v1` | `vin` | 6 | murmur2 (Java) |
 | Output | `charging.sessions.v1` | `vin` | 6 | murmur2 (Java), `partitioner=murmur2_random` |
 | State | `<STATE_TOPIC_PREFIX>.sessions` (compacted) | `"vin"` as JSON | same as input | the input record's partition, set explicitly |
+| State | `<STATE_TOPIC_PREFIX>.watermark` (compacted) | `"watermark"` as JSON | same as input | the lowest assigned partition |
 
 Every session of a VIN goes to the VIN's partition. Downstream consumers: `energy-insights` and
 `service` (from `topics.yaml`). `service_charging_consumer.py` deduplicates by `session_id` and prints
@@ -45,10 +46,22 @@ of lateness and duplicates.
   carries `vin`, `pending` (events not yet emitted, without `vin`), `max_seen_ms` (highest
   `event_time` seen for the VIN, heartbeats and dropped events included) and `emitted_until_ms` (end of
   the last emitted session).
-- Each record runs `advance` with that one event. The horizon is `max_seen_ms`. A run is emitted, once,
-  when `horizon - last event time > 30 minutes`, so a session is emitted when a later event of the same
-  VIN (often a heartbeat) arrives more than 30 minutes after its last event. A `charge_stop` alone does
-  not emit.
+- A second store, `watermark`, holds Spark's event-time watermark (`.withWatermark("event_time",
+  "10 minutes")`): the highest `event_time` seen across all VINs minus 10 minutes, as of the end of
+  the last batch. It starts at 0, never decreases, and has no sensitive fields.
+- A batch is every record up to the input end offsets read when it starts, like a Spark micro-batch
+  (`Job::end_batch`, docs/DESIGN.md). A record whose `event_time` is at or before the watermark is
+  dropped before `advance` and does not move `max_seen_ms`, as Spark drops late rows before
+  `flatMapGroupsWithState` when it uses `EventTimeTimeout`.
+- Each record runs `advance` with that one event and the watermark, so the horizon is
+  `max(max_seen_ms, watermark)`. A run is emitted, once, when `horizon - last event time > 30 minutes`.
+  A `charge_stop` alone does not emit.
+- At the end of every batch the job advances the watermark, then runs `advance` with no events for
+  every VIN. This is Spark's `EventTimeTimeout`: the timeout is the last open event plus 30 minutes and
+  fires once the watermark is past it, in the next batch, which `AvailableNow` always runs. So a
+  vehicle that charges and goes offline has its session emitted once event time across all vehicles
+  is 40 minutes past its last event, without another event from that vehicle. The process exits only
+  after the last batch has ended.
 - State is written only when it changes. It never expires and nothing is deleted, matching the legacy
   job, which always calls `state.update`.
 - On assignment the job restores the store from the changelog (read_committed, beginning to end) before
@@ -85,14 +98,22 @@ output; the job passes the input values through, so they agree.
 
 ## Behavioral differences
 
-None in effective output. The harness compares the last record per `session_id` (check A) and per-key
-order (C).
+None, in effective output or emission timing. The harness compares the last record per `session_id`
+(check A) and per-key order (C), not timing, so `tests/watermark.rs` checks timing against the legacy
+job: the sessions the legacy job emitted for a vehicle that went offline, and the late events it
+dropped (two `AvailableNow` runs on one checkpoint).
+
+Batch boundaries are not Spark's exactly: a crash restarts the batch from the committed offsets, and
+the watermark is per process (Spark's is global; the chart runs one replica). Neither changes content
+for events within the contract's 300 second lateness.
 
 ## Legacy behaviors kept as they are
 
 - **Heartbeats** never join a session but advance `max_seen_ms`, so they trigger emission.
 - **A `charge_start` within 30 minutes** of an open run closes it as `gap_timeout`, before any gap.
 - **Late events at or before `emitted_until_ms`** are dropped, even if they are not duplicates.
+- **Events at or before the watermark** are dropped, heartbeats included, even if they would start a
+  new session.
 - **Events after a `charge_stop`** within 30 minutes do not join the closed run; they are stray.
 - **Equal rank, different events.** Two different events with equal `(event_time, producer_seq)` keep
   arrival order. The generator never produces this.
@@ -109,10 +130,6 @@ None is privacy-relevant. The port follows the code.
   horizon. They agree on generated data.
 - **Late data.** The schema says jobs must accept 300 seconds of lateness and drop nothing earlier. The
   code drops events at or before the end of the last emitted session and stray events more than 30
-  minutes behind the horizon. Generated sessions are more than the gap plus the maximum lateness apart,
-  so no generated event is dropped.
-- **Watermark.** The legacy job declares a 10 minute watermark and `EventTimeTimeout`, so Spark can also
-  call `advance` on timeout with `horizon = max(max_seen, watermark)`, where the watermark is global
-  across VINs. The port uses the per-VIN `max_seen` only and has no timers. This can only change when a
-  session is emitted, not its content: a session is emitted once its 30 minute gap has passed, and with
-  at most 300 seconds of lateness no event can join it afterwards. Open question in the MR.
+  minutes behind the horizon, and events at or before the 10 minute watermark. Generated sessions are
+  more than the gap plus the maximum lateness apart, and lateness is at most 300 seconds, so no
+  generated event is dropped.

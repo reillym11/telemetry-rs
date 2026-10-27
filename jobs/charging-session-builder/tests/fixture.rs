@@ -49,24 +49,31 @@ fn output_validator() -> jsonschema::Validator {
         .unwrap()
 }
 
-/// Run records through the job as one transaction per record. Returns every (key, value) emitted.
+/// Run records through the job as one batch, one transaction per record, then end the batch.
+/// Returns every (key, value) emitted.
 fn replay(job: &mut ChargingSessionBuilder, payloads: &[String]) -> Vec<(String, String)> {
     let mut out = Vec::new();
+    let mut emit = |job: &mut ChargingSessionBuilder, outputs: Vec<_>| {
+        for o in outputs {
+            let r = job.encode(&o).unwrap();
+            out.push((r.key, String::from_utf8(r.value).unwrap()));
+        }
+        for s in job.stores() {
+            s.take_changelog();
+            s.commit();
+        }
+    };
     for p in payloads {
         if let Some(input) = job.decode(p.as_bytes()).unwrap() {
             for s in job.stores() {
                 s.set_partition(0);
             }
-            for o in job.process(input).unwrap() {
-                let r = job.encode(&o).unwrap();
-                out.push((r.key, String::from_utf8(r.value).unwrap()));
-            }
-            for s in job.stores() {
-                s.take_changelog();
-                s.commit();
-            }
+            let o = job.process(input).unwrap();
+            emit(job, o);
         }
     }
+    let o = job.end_batch().unwrap();
+    emit(job, o);
     out
 }
 
@@ -126,25 +133,31 @@ fn replay_after_restore_emits_nothing_new() {
     let input = sample();
     let mut job = ChargingSessionBuilder::default();
     let mut changelog = Vec::new();
+    let mut collect = |job: &mut ChargingSessionBuilder| {
+        for (i, s) in job.stores().into_iter().enumerate() {
+            changelog.extend(s.take_changelog().into_iter().map(|c| (i, c)));
+            s.commit();
+        }
+    };
     for p in &input {
         if let Some(i) = job.decode(p.as_bytes()).unwrap() {
             for s in job.stores() {
                 s.set_partition(2);
             }
             job.process(i).unwrap();
-            for s in job.stores() {
-                changelog.extend(s.take_changelog());
-                s.commit();
-            }
+            collect(&mut job);
         }
     }
+    job.end_batch().unwrap();
+    collect(&mut job);
     let mut restored = ChargingSessionBuilder::default();
-    for c in &changelog {
-        restored.stores()[0]
+    for (i, c) in &changelog {
+        restored.stores()[*i]
             .restore(c.partition, &c.key, c.value.as_deref())
             .unwrap();
     }
     assert_eq!(restored.stores()[0].len(), job.stores()[0].len());
+    assert_eq!(restored.watermark_ms(), job.watermark_ms());
     assert!(
         replay(&mut restored, &input).is_empty(),
         "a full re-delivery after restore must not emit a session again"

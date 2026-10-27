@@ -1,10 +1,10 @@
 # Privacy manifest for charging-session-builder. telemetry-parity check E4 compares inputs, outputs,
 # state_stores and sensitive_fields with what it observes; the other keys document the job.
 # Topic names are the harness names (rust.<topic>, rust.<job>.state.<store>). In production the
-# output is charging.sessions.v1 and the state topic is <STATE_TOPIC_PREFIX>.sessions.
+# output is charging.sessions.v1 and the state topics are <STATE_TOPIC_PREFIX>.sessions and .watermark.
 inputs: [vehicle.charging.events.v1]
 outputs: [rust.charging.sessions.v1]
-state_stores: [rust.charging-session-builder.state.sessions]
+state_stores: [rust.charging-session-builder.state.sessions, rust.charging-session-builder.state.watermark]
 sensitive_fields:
   rust.charging.sessions.v1: [session_id, vin, charger_lat, charger_lon]
   rust.charging-session-builder.state.sessions: [vin, charger_lat, charger_lon]
@@ -52,6 +52,14 @@ state:
     sensitive_fields: [vin, charger_lat, charger_lon]
     retention: none; one record per vin, kept until compaction replaces it. Pending events (with their charger coordinates) leave the value once their session is emitted or they expire as stray events
     legacy: the Spark job held the same per-VIN state, including pending events with charger_lat and charger_lon, in its checkpoint directory (flatMapGroupsWithState state store), not in Kafka
+  watermark:
+    topic: <STATE_TOPIC_PREFIX>.watermark
+    cleanup_policy: compact
+    key: '"watermark" as a JSON string'
+    value_fields: [the event-time watermark in epoch milliseconds]
+    sensitive_fields: []
+    retention: none; one record, replaced at each batch end that advances the watermark
+    legacy: Spark kept the watermark in its checkpoint offset log
 transformations:
   vin: copied unchanged into the output value, the output key and the state topic key and value; never logged
   session_id: UUIDv5 (namespace f5179d15-0fd7-5b5f-bf53-0852eb22d3d5) over vin + "|" + lowercase(charge_start event_id), as Ids.sessionId; never logged
