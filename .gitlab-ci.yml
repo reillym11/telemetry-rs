@@ -43,6 +43,9 @@ cargo-build:
 docker-image:
   extends: .dind
   stage: build
+  parallel:
+    matrix:
+      - JOB: [ota-status-tracker, charging-session-builder]
   image: docker:27
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
@@ -59,6 +62,9 @@ cargo-test:
 
 helm:
   stage: test
+  parallel:
+    matrix:
+      - JOB: [ota-status-tracker, charging-session-builder]
   image:
     name: alpine/helm:3.22.0
     entrypoint: [""]
@@ -90,6 +96,9 @@ audit:
 parity:
   extends: .dind
   stage: parity
+  parallel:
+    matrix:
+      - JOB: [ota-status-tracker, charging-session-builder]
   image: python:3.11
   timeout: 1h
   variables:
