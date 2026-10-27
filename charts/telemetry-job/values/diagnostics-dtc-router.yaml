@@ -1,0 +1,9 @@
+job: diagnostics-dtc-router
+image:
+  repository: ghcr.io/reillym11/telemetry-rs/diagnostics-dtc-router
+  tag: "0.1.0"
+inputTopics: vehicle.diagnostics.dtc.v1
+outputTopic: service.dtc.alerts.v1
+consumerGroup: diagnostics-dtc-router
+transactionalIdPrefix: diagnostics-dtc-router
+stateTopicPrefix: diagnostics-dtc-router.state

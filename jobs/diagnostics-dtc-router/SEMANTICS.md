@@ -5,9 +5,9 @@ Port of `telemetry-spark-jobs/jobs/diagnostics-dtc-router` (`DiagnosticsDtcRoute
 `Json.parse` / `Json.toKafkaRecord`, `Schemas.DiagnosticsDtc`, `KafkaIO`. Written from the code at
 telemetry-spark-jobs `1697686` (the `TELEMETRY_SPARK_JOBS_SHA` the pinned harness runs).
 
-**Status: blocked before implementation.** The legacy code and the output schema disagree on how the
-sensitive `lat` / `lon` fields are rounded (see "Disagreements"). The port does not pick a side until an
-engineer decides.
+**Rounding decision.** The legacy code and the output schema disagree on how the sensitive `lat` / `lon`
+fields are rounded (disagreement 1). An engineer decided to port the legacy HALF_EVEN rule. The schema
+description is an open item for data-contracts; this repo does not change it.
 
 ## Topics and keys
 
@@ -15,8 +15,8 @@ engineer decides.
 |---|---|---|---|---|
 | Input | `vehicle.diagnostics.dtc.v1` | `vin` | 6 | murmur2 (Java) |
 | Output | `service.dtc.alerts.v1` (delete) | `vin` | 6 | murmur2 (Java), `partitioner=murmur2_random` |
-| State (planned) | `<STATE_TOPIC_PREFIX>.seen` (compacted) | `event_id` as JSON | same as input | the input record's partition |
-| State (planned) | `<STATE_TOPIC_PREFIX>.watermark` (compacted) | `"watermark"` as JSON | same as input | the lowest assigned partition |
+| State | `<STATE_TOPIC_PREFIX>.seen` (compacted) | `event_id` as JSON | same as input | the input record's partition |
+| State | `<STATE_TOPIC_PREFIX>.watermark` (compacted) | `"watermark"`, `"max_event_time"` as JSON | same as input | the partition of the record that first set it |
 
 The legacy job writes `col("vin").cast("string")` as the key, so every alert of a VIN goes to the VIN's
 partition. Downstream consumers: `service-scheduling` (from `topics.yaml`).
@@ -52,8 +52,24 @@ are written in the order Spark processes the rows; the contract compares alerts 
 - **End of input.** `Trigger.AvailableNow` processes the available offsets (one batch: no
   `maxOffsetsPerTrigger`) and may run a final no-data batch that advances the watermark and evicts
   state. That batch emits nothing for this job.
-- The planned port keeps the watermark in its own store and advances it, and evicts `seen`, in
-  `Job::end_batch`, as charging-session-builder does; `end_batch` emits nothing.
+- **Port.** `process` records the highest routable `event_time` (`max_event_time`, duplicates and late
+  rows included, as Spark's watermark operator sees them), drops a row at or before the watermark or
+  whose `event_id` is in `seen`, and otherwise stores `event_id -> event_time + 10 minutes` and emits
+  the alert at once. `Job::end_batch` advances the watermark to `max_event_time - 10 minutes` and then
+  evicts `seen` entries that expire at or before it (one tombstone each), which is what the
+  `AvailableNow` data batch plus its final no-data batch do. `end_batch` emits nothing. The watermark
+  and the maximum live in their own store, as in charging-session-builder, so a restart mid-batch keeps
+  them.
+
+## Timing evidence
+
+The legacy jar (spark-runner `169768600588`) was run three times with `AvailableNow` on one checkpoint
+over the input in `tests/watermark.rs`. Legacy emitted: run 1 `e1@0`, `e2@45`, `e3@60` (duplicate `e1`
+dropped; heartbeat and severity 2 rows did not move the watermark, which became 50 min); run 2
+`e5@51`, `e1@55` (its entry had been evicted at 50 min, so it alerts again), `e6@90` (`e4@50`, exactly
+at the watermark, dropped; `e2@58` and `e3@60` dropped as duplicates); run 3 `e5@81` (evicted at
+80 min) only (`e6` duplicate, `e7@79` and `e8@80` late). The test asserts the same output per batch.
+Legacy wrote `e2@45` before `e1@0` on the VIN's partition; the port writes alerts in arrival order.
 
 ## Where duplicates are removed
 
@@ -101,6 +117,14 @@ No other field of the input reaches the output; `odometer_km`, `status`, envelop
 5. **`event_id` case.** `alert_id` lowercases the `event_id`; dedup does not. The schema requires
    lowercase `event_id`, so they agree on valid input. Does not depend on batch boundaries.
 
+## Open items
+
+- **data-contracts:** the `service.dtc.alerts.v1` schema description says HALF_UP; legacy uses HALF_EVEN
+  since telemetry-spark-jobs `67626d8`. The port follows legacy (engineer decision). The schema
+  description, or a `.v2` topic, needs a data-contracts change.
+
 ## Behavioral differences
 
-To be decided: see disagreement 1.
+None. `lat` / `lon` follow legacy HALF_EVEN (see Open items). Limit: legacy rounds Java 17's
+`Double.toString`, the port rounds Rust's shortest decimal form; they are the same for inputs with
+5 decimals, as the contract requires.
