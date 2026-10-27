@@ -74,7 +74,7 @@ so a partition's state moves with the partition on rebalance.
 3. In telemetry-parity at the SHA in `contracts/SOURCE`:
    `RUST_IMAGE=telemetry-rs/<job>:dev ./run.sh --job <job> --fixture full --chaos-at 0.4 --manifest <path>`.
    Run `full` without chaos and with `--chaos-at 0.75` too.
-4. Set `JOB` in `.gitlab-ci.yml` (or add a matrix entry) and open the MR with the `port` template.
+4. Open the PR with the `port` template (`?template=port.md`). CI runs parity for every `jobs/<job>/privacy-manifest.yaml` and lints every `charts/telemetry-job/values/<job>.yaml`.
 
 ## Not supported yet
 
