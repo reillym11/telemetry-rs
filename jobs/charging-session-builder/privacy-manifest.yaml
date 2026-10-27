@@ -52,10 +52,10 @@ state:
   batch:
     topic: <STATE_TOPIC_PREFIX>.batch
     cleanup_policy: compact
-    key: '"vin|event_id" as a JSON string'
-    value_fields: [event_id, vin, event_time_ms, event_type, producer_seq, fleet, market, connector_type, charger_type, power_kw, energy_added_kwh, soc_pct, charger_lat, charger_lon]
+    key: '"vin|slot" as a JSON string (slot 0, 1, ... in arrival order within the batch)'
+    value_fields: [vin, event (event_id, vin, event_time_ms, event_type, producer_seq, fleet, market, connector_type, charger_type, power_kw, energy_added_kwh, soc_pct, charger_lat, charger_lon, or null)]
     sensitive_fields: [vin, charger_lat, charger_lon]
-    retention: one record per input event of the open batch; tombstoned when the batch ends
+    retention: a slot holds an input event only while its batch is open; the batch end overwrites it with {vin, event: null} (no tombstone), so charger_lat and charger_lon leave the latest value; slots are reused, at most the VIN's largest batch
     legacy: the rows of the running Spark micro-batch, in Spark's shuffle and Kafka source, not in Kafka
   sessions:
     topic: <STATE_TOPIC_PREFIX>.sessions
@@ -74,7 +74,7 @@ state:
     retention: one record, replaced every batch
     legacy: the watermark in the Spark checkpoint offset log
 transformations:
-  vin: copied unchanged into the output value, the output key and the state values; part of the session_id input and of the batch state key; never logged
+  vin: copied unchanged into the output value, the output key and the state values; part of the session_id input and of the state keys; never logged
   session_id: UUIDv5(namespace f5179d15-0fd7-5b5f-bf53-0852eb22d3d5, vin + "|" + lowercase charge_start event_id), as Ids.sessionId
   charger_lat: copied unchanged (full input precision, 5 decimals) from the session's charge_start; no rounding or coarsening (the job does not call GeoUtils.coarsen); never logged
   charger_lon: copied unchanged (full input precision, 5 decimals) from the session's charge_start; no rounding or coarsening (the job does not call GeoUtils.coarsen); never logged

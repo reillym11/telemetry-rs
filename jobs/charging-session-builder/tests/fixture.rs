@@ -96,7 +96,14 @@ impl Runner {
 
     fn commit(&mut self) {
         for (i, s) in self.job.stores().into_iter().enumerate() {
-            self.changelog[i].extend(s.take_changelog());
+            let log = s.take_changelog();
+            // telemetry-parity reads every state record's value, so the job never writes tombstones.
+            assert!(
+                log.iter().all(|c| c.value.is_some()),
+                "tombstone in {}",
+                s.name()
+            );
+            self.changelog[i].extend(log);
             s.commit();
         }
     }

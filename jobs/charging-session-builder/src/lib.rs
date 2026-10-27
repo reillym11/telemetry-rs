@@ -31,11 +31,23 @@ impl Default for Watermark {
     }
 }
 
-/// A Spark micro-batch hands each VIN all of its new rows at once, so records are buffered (`batch`,
-/// keyed `vin|event_id`) and applied in `end_batch`, followed by the timeouts of the final no-data batch.
+/// One buffered row of the open batch. Slots `vin|0`, `vin|1`, ... fill in arrival order and are
+/// cleared (`event: None`) when the batch ends, so the changelog never needs a tombstone.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Slot {
+    pub vin: String,
+    pub event: Option<ChargingEvent>,
+}
+
+fn slot_key(vin: &str, i: usize) -> String {
+    format!("{vin}|{i}")
+}
+
+/// A Spark micro-batch hands each VIN all of its new rows at once, so records are buffered (`batch`)
+/// and applied in `end_batch`, followed by the timeouts of the final no-data batch.
 pub struct ChargingSessionBuilder {
     sessions: KeyedState<String, SessionState>,
-    batch: KeyedState<String, ChargingEvent>,
+    batch: KeyedState<String, Slot>,
     watermark: KeyedState<String, Watermark>,
 }
 
@@ -120,10 +132,21 @@ impl Job for ChargingSessionBuilder {
             self.sessions
                 .put(e.vin.clone(), SessionState::empty(&e.vin))?;
         }
-        let key = format!("{}|{}", e.vin, e.event_id);
-        if self.batch.get(&key).is_none() {
-            self.batch.put(key, e)?;
+        let mut i = 0;
+        while self
+            .batch
+            .get(&slot_key(&e.vin, i))
+            .is_some_and(|s| s.event.is_some())
+        {
+            i += 1;
         }
+        self.batch.put(
+            slot_key(&e.vin, i),
+            Slot {
+                vin: e.vin.clone(),
+                event: Some(e),
+            },
+        )?;
         Ok(Vec::new())
     }
 
@@ -131,22 +154,33 @@ impl Job for ChargingSessionBuilder {
     /// advances and the final no-data batch fires the timeouts below it.
     fn end_batch(&mut self) -> Result<Vec<ChargingSession>> {
         let wm = self.watermark();
-        let mut by_vin: BTreeMap<String, Vec<ChargingEvent>> = BTreeMap::new();
+        let mut rows: BTreeMap<String, Vec<(usize, ChargingEvent)>> = BTreeMap::new();
         for k in self.batch.keys() {
-            if let Some(e) = self.batch.get(&k) {
-                by_vin.entry(e.vin.clone()).or_default().push(e.clone());
-            }
-            self.batch.delete(&k)?;
+            let Some(Slot {
+                vin,
+                event: Some(e),
+            }) = self.batch.get(&k).cloned()
+            else {
+                continue;
+            };
+            let i = k
+                .rsplit('|')
+                .next()
+                .and_then(|i| i.parse().ok())
+                .unwrap_or(0);
+            self.batch.put(
+                k,
+                Slot {
+                    vin: vin.clone(),
+                    event: None,
+                },
+            )?;
+            rows.entry(vin).or_default().push((i, e));
         }
         let mut out = Vec::new();
-        for (vin, mut events) in by_vin {
-            events.sort_by(|a, b| {
-                (a.event_time_ms, a.producer_seq, &a.event_id).cmp(&(
-                    b.event_time_ms,
-                    b.producer_seq,
-                    &b.event_id,
-                ))
-            });
+        for (vin, mut slots) in rows {
+            slots.sort_by_key(|(i, _)| *i);
+            let events: Vec<ChargingEvent> = slots.into_iter().map(|(_, e)| e).collect();
             self.step(&vin, &events, wm.current_ms, &mut out)?;
         }
         self.fire_timeouts(wm.current_ms, &mut out)?;

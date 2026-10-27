@@ -12,7 +12,7 @@ legacy job's. The delivery guarantee is stronger.
 | Input | `vehicle.charging.events.v1` | `vin` | 6 | murmur2 (Java) |
 | Output | `charging.sessions.v1` (delete) | `vin` | 6 | murmur2 (Java), `partitioner=murmur2_random` |
 | State | `<STATE_TOPIC_PREFIX>.sessions` (compacted) | `vin` as JSON | same as input | the VIN's input partition |
-| State | `<STATE_TOPIC_PREFIX>.batch` (compacted) | `"vin\|event_id"` as JSON | same as input | the record's input partition |
+| State | `<STATE_TOPIC_PREFIX>.batch` (compacted) | `"vin\|slot"` as JSON | same as input | the record's input partition |
 | State | `<STATE_TOPIC_PREFIX>.watermark` (compacted) | `"watermark"` as JSON | same as input | the partition of the first record that created it |
 
 Downstream consumers: `service` (`downstream-consumers/service_charging_consumer.py`) and
@@ -58,7 +58,7 @@ record up to the end offsets read when the batch started, then `Job::end_batch`.
 |---|---|
 | Watermark `W` from earlier runs (initially 0). Rows with `event_time <= W` are dropped before grouping | `process` drops rows with `event_time <= W` (stored watermark) |
 | Every row, dropped or not, feeds the run's max event time | `process` records the batch's max event time in the `watermark` store |
-| Each VIN with rows gets all of its rows at once: `advance(state, rows, W)` | `process` buffers rows in the `batch` store; `end_batch` calls `advance(state, rows, W)` per VIN |
+| Each VIN with rows gets all of its rows at once: `advance(state, rows, W)` | `process` buffers rows in the `batch` store in arrival order; `end_batch` calls `advance(state, rows, W)` per VIN |
 | In the same batch, VINs without rows whose timeout `< W` (strict) get `advance(state, [], W)` | `end_batch` does the same |
 | Watermark becomes `max(W, max event time - 10 min)` | `end_batch` stores the same |
 | Final no-data batch: VINs whose timeout `< new W` get `advance(state, [], new W)` | `end_batch` does the same, in the same transaction |
@@ -95,7 +95,7 @@ same `advance` calls, as if one batch had run.
 ## Sensitive fields
 
 - `vin` (vehicle-id): copied into the output value and key, the `sessions` and `batch` values, and the
-  `batch` key, and hashed into `session_id`. Never logged.
+  state keys, and hashed into `session_id`. Never logged.
 - `session_id` (vehicle-id): `Ids.sessionId`, above. The `event_id` is lowercased; the VIN is not.
 - `charger_lat`, `charger_lon` (precise-location): copied unchanged from the session's `charge_start`
   at input precision (5 decimals). The job never calls `GeoUtils.coarsen` or rounds them. They sit in
@@ -106,7 +106,10 @@ same `advance` calls, as if one batch had run.
 
 - `sessions: KeyedState<String, SessionState>`: legacy `SessionState` plus the timeout. It is created
   in `process` on the VIN's first row, so it lives on the VIN's partition.
-- `batch: KeyedState<String, ChargingEvent>`: the open batch's rows, tombstoned in `end_batch`.
+- `batch: KeyedState<String, Slot>`: the open batch's rows in slots `vin|0`, `vin|1`, ... in arrival
+  order. `end_batch` clears each slot to `{vin, event: null}` instead of writing a tombstone, because
+  telemetry-parity reads every state record's value. Slots are reused, so there are at most as many
+  per VIN as its most rows in one batch.
 - `watermark: KeyedState<String, Watermark>`: `current_ms` and the open batch's `batch_max_ms`. One
   key, so one global watermark per process, like Spark's with one replica (docs/DESIGN.md, Known
   limits).
