@@ -31,6 +31,7 @@ impl telemetry_core::Job for MyJob {
     type Output = Out;
     fn decode(&self, payload: &[u8]) -> Result<Option<Event>>;   // Ok(None) skips the record
     fn process(&mut self, input: Event) -> Result<Vec<Out>>;     // read and write state here
+    fn end_batch(&mut self) -> Result<Vec<Out>>;                // optional: watermark and timeouts
     fn encode(&self, out: &Out) -> Result<Record>;               // output key and JSON value
     fn stores(&mut self) -> Vec<&mut dyn StateStore>;            // every KeyedState the job owns
 }
@@ -48,6 +49,8 @@ Rules the runtime relies on:
   `decode_errors_total`, logged by offset only, and skipped.
 - **State values must carry the sensitive fields they hold** (for example `vin`), and the privacy
   manifest must list them. telemetry-parity check E3 scans state topic values.
+- **Timing is behavior.** If the legacy job emits output on a watermark or timeout, do it in
+  `end_batch`, not only when the key's next record arrives. Parity compares content, not timing.
 - **Never log record contents.** Log topic, partition, offset and counts.
 
 ## 4. Store naming

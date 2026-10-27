@@ -71,8 +71,29 @@ where
         }
     }
 
+    /// Every key with a value, staged writes included, in no particular order.
+    pub fn keys(&self) -> Vec<K> {
+        let mut keys: Vec<K> = self
+            .committed
+            .keys()
+            .filter(|k| !self.staged.contains_key(*k))
+            .cloned()
+            .collect();
+        keys.extend(
+            self.staged
+                .iter()
+                .filter(|(_, (_, v))| v.is_some())
+                .map(|(k, _)| k.clone()),
+        );
+        keys
+    }
+
+    /// A key that already exists keeps its partition, so [`Job::end_batch`] can update any key.
+    /// A new key goes to the partition of the record being processed.
+    ///
+    /// [`Job::end_batch`]: crate::job::Job::end_batch
     pub fn put(&mut self, key: K, value: V) -> Result<()> {
-        let p = self.current_partition()?;
+        let p = self.partition_of(&key)?;
         self.log.push(ChangelogRecord {
             partition: p,
             key: serde_json::to_vec(&key).context("serialize state key")?,
@@ -83,7 +104,7 @@ where
     }
 
     pub fn delete(&mut self, key: &K) -> Result<()> {
-        let p = self.current_partition()?;
+        let p = self.partition_of(key)?;
         self.log.push(ChangelogRecord {
             partition: p,
             key: serde_json::to_vec(key).context("serialize state key")?,
@@ -93,8 +114,16 @@ where
         Ok(())
     }
 
-    fn current_partition(&self) -> Result<i32> {
-        self.partition.context("state written outside Job::process")
+    fn partition_of(&self, key: &K) -> Result<i32> {
+        let existing = self
+            .staged
+            .get(key)
+            .map(|(p, _)| *p)
+            .or_else(|| self.committed.get(key).map(|(p, _)| *p));
+        match existing {
+            Some(p) => Ok(p),
+            None => self.partition.context("state written outside Job::process"),
+        }
     }
 }
 
@@ -250,6 +279,24 @@ mod tests {
         s.commit();
         s.drop_partitions(&[3]);
         assert_eq!((s.get(&"a".into()), s.get(&"b".into())), (None, Some(&2)));
+    }
+
+    #[test]
+    fn an_existing_key_keeps_its_partition_and_keys_include_staged_writes() {
+        let mut s = store();
+        s.put("a".into(), 1).unwrap();
+        s.put("b".into(), 2).unwrap();
+        s.commit();
+        s.set_partition(5);
+        s.put("a".into(), 3).unwrap();
+        s.delete(&"b".to_string()).unwrap();
+        s.put("c".into(), 4).unwrap();
+        let log = s.take_changelog();
+        let parts: Vec<i32> = log.iter().map(|c| c.partition).collect();
+        assert_eq!(parts, vec![3, 3, 5]);
+        let mut keys = s.keys();
+        keys.sort();
+        assert_eq!(keys, vec!["a".to_string(), "c".to_string()]);
     }
 
     #[test]

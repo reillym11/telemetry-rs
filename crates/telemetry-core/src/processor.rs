@@ -169,6 +169,8 @@ pub struct Processor<J: Job> {
     pending: HashMap<Tp, i64>,
     /// Input end offsets recorded at the first assignment (exit-when-caught-up).
     end_offsets: HashMap<Tp, i64>,
+    /// Input end offsets read when the open batch started (see `Job::end_batch`).
+    batch_end: Option<HashMap<Tp, i64>>,
     txn_started: Option<Instant>,
     txn_records: usize,
 }
@@ -255,6 +257,7 @@ impl<J: Job> Processor<J> {
             committed: HashMap::new(),
             pending: HashMap::new(),
             end_offsets: HashMap::new(),
+            batch_end: None,
             txn_started: None,
             txn_records: 0,
         })
@@ -297,7 +300,10 @@ impl<J: Job> Processor<J> {
                     }
                 };
                 if self.assigned.contains(&tp) {
-                    if let Err(e) = self.process(&tp, offset, payload.as_deref()) {
+                    let result = self
+                        .process(&tp, offset, payload.as_deref())
+                        .and_then(|_| self.end_batch_if_done());
+                    if let Err(e) = result {
                         match e.downcast_ref::<KafkaError>().map(classify) {
                             Some(Class::Abort) | Some(Class::Retry) => self.abort_and_rewind(&e)?,
                             _ => return Err(e),
@@ -312,7 +318,11 @@ impl<J: Job> Processor<J> {
                     self.commit()?;
                 }
             }
-            if self.txn_started.is_none() && self.cfg.exit_when_caught_up && self.caught_up() {
+            if self.txn_started.is_none()
+                && self.batch_end.is_none()
+                && self.cfg.exit_when_caught_up
+                && self.caught_up()
+            {
                 tracing::info!(
                     committed = self.committed.values().sum::<i64>(),
                     "caught up, exiting"
@@ -323,6 +333,16 @@ impl<J: Job> Processor<J> {
     }
 
     fn process(&mut self, tp: &Tp, offset: i64, payload: Option<&[u8]>) -> Result<()> {
+        if self.batch_end.is_none() {
+            let mut end = HashMap::new();
+            for (t, p) in &self.assigned {
+                let (_, high) = self
+                    .consumer
+                    .fetch_watermarks(t, *p, Duration::from_secs(30))?;
+                end.insert((t.clone(), *p), high);
+            }
+            self.batch_end = Some(end);
+        }
         if self.txn_started.is_none() {
             self.producer
                 .begin_transaction()
@@ -349,32 +369,58 @@ impl<J: Job> Processor<J> {
                 s.set_partition(tp.1);
             }
             let outputs = self.job.process(input)?;
-            for o in &outputs {
-                let r = self.job.encode(o)?;
-                send(
-                    &self.producer,
-                    BaseRecord::to(&self.output_topic)
-                        .key(&r.key)
-                        .payload(&r.value),
-                )?;
-                self.metrics.records_out.inc();
-            }
-            let prefix = self.cfg.state_topic_prefix.clone();
-            for s in self.job.stores() {
-                let topic = format!("{prefix}.{}", s.name());
-                for c in s.take_changelog() {
-                    let rec = BaseRecord::<Vec<u8>, Vec<u8>>::to(&topic)
-                        .key(&c.key)
-                        .partition(c.partition);
-                    match &c.value {
-                        Some(v) => send(&self.producer, rec.payload(v))?,
-                        None => send(&self.producer, rec)?,
-                    }
-                }
-            }
+            self.send_outputs(&outputs)?;
         }
         self.pending.insert(tp.clone(), offset + 1);
         self.txn_records += 1;
+        Ok(())
+    }
+
+    /// Once every partition has reached the end offset read when the batch started: run
+    /// `Job::end_batch` in the open transaction and commit it.
+    fn end_batch_if_done(&mut self) -> Result<()> {
+        let done = self
+            .batch_end
+            .as_ref()
+            .is_some_and(|end| batch_done(end, &self.committed, &self.pending));
+        if !done || self.txn_started.is_none() {
+            return Ok(());
+        }
+        if let Some((_, p)) = self.assigned.iter().next() {
+            for s in self.job.stores() {
+                s.set_partition(*p);
+            }
+        }
+        let outputs = self.job.end_batch()?;
+        self.send_outputs(&outputs)?;
+        self.batch_end = None;
+        self.commit()
+    }
+
+    fn send_outputs(&mut self, outputs: &[J::Output]) -> Result<()> {
+        for o in outputs {
+            let r = self.job.encode(o)?;
+            send(
+                &self.producer,
+                BaseRecord::to(&self.output_topic)
+                    .key(&r.key)
+                    .payload(&r.value),
+            )?;
+            self.metrics.records_out.inc();
+        }
+        let prefix = self.cfg.state_topic_prefix.clone();
+        for s in self.job.stores() {
+            let topic = format!("{prefix}.{}", s.name());
+            for c in s.take_changelog() {
+                let rec = BaseRecord::<Vec<u8>, Vec<u8>>::to(&topic)
+                    .key(&c.key)
+                    .partition(c.partition);
+                match &c.value {
+                    Some(v) => send(&self.producer, rec.payload(v))?,
+                    None => send(&self.producer, rec)?,
+                }
+            }
+        }
         Ok(())
     }
 
@@ -519,6 +565,9 @@ impl<J: Job> Processor<J> {
                     for tp in &partitions {
                         self.assigned.remove(tp);
                         self.committed.remove(tp);
+                        if let Some(end) = self.batch_end.as_mut() {
+                            end.remove(tp);
+                        }
                     }
                     let dropped: Vec<i32> = partitions
                         .iter()
@@ -782,6 +831,22 @@ fn restore(
     Ok(())
 }
 
+/// Whether every partition of the batch has been read up to the end offset recorded at its start.
+fn batch_done(
+    end: &HashMap<Tp, i64>,
+    committed: &HashMap<Tp, i64>,
+    pending: &HashMap<Tp, i64>,
+) -> bool {
+    end.iter().all(|(tp, e)| {
+        pending
+            .get(tp)
+            .or_else(|| committed.get(tp))
+            .copied()
+            .unwrap_or(0)
+            >= *e
+    })
+}
+
 /// Committed input offsets, summed over partitions, once the open transaction commits.
 fn committed_after(committed: &HashMap<Tp, i64>, pending: &HashMap<Tp, i64>) -> i64 {
     let mut next = committed.clone();
@@ -800,5 +865,15 @@ mod tests {
         let pending = HashMap::from([(tp(0), 9), (tp(2), 4)]);
         assert_eq!(committed_after(&committed, &pending), 9 + 3 + 4);
         assert_eq!(committed_after(&committed, &HashMap::new()), 8);
+    }
+
+    #[test]
+    fn batch_is_done_once_every_partition_reaches_its_end() {
+        let tp = |p| ("in".to_string(), p);
+        let end = HashMap::from([(tp(0), 10), (tp(1), 4), (tp(2), 0)]);
+        let committed = HashMap::from([(tp(0), 6), (tp(1), 4)]);
+        assert!(!batch_done(&end, &committed, &HashMap::new()));
+        assert!(!batch_done(&end, &committed, &HashMap::from([(tp(0), 9)])));
+        assert!(batch_done(&end, &committed, &HashMap::from([(tp(0), 10)])));
     }
 }
