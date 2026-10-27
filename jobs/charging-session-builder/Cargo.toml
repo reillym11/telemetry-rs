@@ -1,0 +1,19 @@
+[package]
+name = "charging-session-builder"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+telemetry-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
+proptest.workspace = true

@@ -16,4 +16,5 @@ cp -r "$dc/contracts/topics" topics
 mkdir -p fixtures golden
 cp -r "$dc/fixtures/sample" fixtures/sample
 cp -r "$tp/golden/sample/ota-status-tracker" golden/ota-status-tracker
+cp -r "$tp/golden/sample/charging-session-builder" golden/charging-session-builder
 echo "vendored data-contracts@$DATA_CONTRACTS_SHA telemetry-parity@$TELEMETRY_PARITY_SHA"
