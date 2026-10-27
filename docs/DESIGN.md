@@ -26,11 +26,18 @@ Final design checkpoint for `telemetry-core` and the `ota-status-tracker` refere
 ```text
 poll -> first record after a commit: begin_transaction
      -> decode; process against staged state; produce outputs and changelog records
-     -> BATCH_MAX_RECORDS records or BATCH_MAX_MS since begin:
+     -> BATCH_MAX_RECORDS records or BATCH_MAX_MS since begin, or the batch ends:
           send_offsets_to_transaction(next offsets, consumer group metadata)
           commit_transaction
           apply staged state; advance local committed offsets
 ```
+
+A batch works like a Spark micro-batch. Its first record reads the end offset of every assigned input
+partition. Once every partition has reached its end offset, the processor calls `Job::end_batch` in the
+open transaction, sends what it returns and the changelog records it staged, and commits. A batch can
+span several transactions. Jobs use `end_batch` to advance an event-time watermark and fire timeouts,
+so a key's output does not wait for that key's next record. With `EXIT_WHEN_CAUGHT_UP` the process
+exits only after the last batch has ended, as Spark's `AvailableNow` runs a final no-data batch.
 
 - The transaction stays open while records are processed, so `BATCH_MAX_MS` bounds the transaction,
   not only the poll.
@@ -133,5 +140,7 @@ lands after some of them have committed.
 ## Known limits
 
 - `OUTPUT_PATH` (Parquet) is not implemented; the runtime rejects it at startup.
+- `Job::end_batch` sees only the partitions assigned to this process, so a watermark kept by a job is
+  per process. That matches Spark's global watermark with one replica, the chart default.
 - One process per `transactional.id`. Scaling out means more StatefulSet replicas, each with its own
   id from the pod name, sharing the consumer group.

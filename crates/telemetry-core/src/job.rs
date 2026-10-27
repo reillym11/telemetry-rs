@@ -26,6 +26,14 @@ pub trait Job: Send + 'static {
     /// [`KeyedState`]: crate::state::KeyedState
     fn process(&mut self, input: Self::Input) -> Result<Vec<Self::Output>>;
 
+    /// Called once at the end of every batch, inside its transaction, after the batch's last
+    /// record. A batch is every record up to the input end offsets read when it started, as in a
+    /// Spark micro-batch. Jobs with an event-time watermark or timeouts advance them here. State
+    /// writes go to each existing key's own partition. The default does nothing.
+    fn end_batch(&mut self) -> Result<Vec<Self::Output>> {
+        Ok(Vec::new())
+    }
+
     fn encode(&self, output: &Self::Output) -> Result<Record>;
 
     /// Every state store the job owns. The order must be stable.
