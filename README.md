@@ -64,7 +64,7 @@ environment variables:
 
 ## Parity
 
-[telemetry-parity](https://gitlab.com/congition-demo-group/telemetry-parity) replays the same
+[telemetry-parity](https://github.com/reillym11/telemetry-parity) replays the same
 fixture through the legacy Spark job and this image and compares the results. Use the harness at the
 `TELEMETRY_PARITY_SHA` in `contracts/SOURCE`:
 
