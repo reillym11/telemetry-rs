@@ -82,6 +82,21 @@ With `group.instance.id` set, librdkafka does not send LeaveGroup on close. A re
 same instance id rejoins without a rebalance; a pod that does not come back is removed after
 `session.timeout.ms`.
 
+## Failpoint (test only)
+
+`TELEMETRY_FAILPOINT_AT_OFFSETS=N` exists only for telemetry-parity's `--chaos-mode failpoint`
+(telemetry-parity `docs/RUST_JOB_CONTRACT.md`). Unset, which is the default and what the chart
+deploys, it does nothing. When set, the first transaction whose commit would bring the committed
+input offsets, summed over partitions, to `N` or more does this in `commit`, in order:
+
+1. its outputs and changelog records are already produced;
+2. `send_offsets_to_transaction`;
+3. flush the producer, so the records are on the broker;
+4. SIGKILL its own process, before `commit_transaction`.
+
+The restarted process's `init_transactions` aborts that transaction, so read_committed readers never
+see its records and read_uncommitted readers do. The log line carries only offset totals.
+
 ## Observability
 
 Metrics (OpenMetrics on `METRICS_PORT`): `records_in_total`, `records_out_total`,
@@ -105,10 +120,9 @@ keys or values, so no VIN or location reaches a log.
 
 `build` (cargo build, image push), `test` (cargo test, helm lint and template), `lint` (fmt, clippy,
 cargo audit), `parity` (telemetry-parity at the SHA in `contracts/SOURCE`, sample fixture, `--chaos`,
-privacy manifest). The parity job runs a second image tag that only sets `BATCH_MAX_RECORDS=5`:
-with the default 500, the 43-record sample commits in one transaction and the harness has no committed
-offset to kill at. The harness cannot pass extra environment variables to the job, and this phase
-does not change the harness.
+`--chaos-mode failpoint`, privacy manifest). The parity job runs a second image tag that only sets
+`BATCH_MAX_RECORDS=5`, so the 43-record sample spans several transactions and the failpoint crash
+lands after some of them have committed.
 
 ## Dependency notes
 

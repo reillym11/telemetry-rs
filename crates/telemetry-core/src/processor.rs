@@ -391,11 +391,18 @@ impl<J: Job> Processor<J> {
             .group_metadata()
             .context("consumer group metadata")?;
         let timeout = self.cfg.txn_timeout;
+        let failpoint = self
+            .cfg
+            .failpoint_at_offsets
+            .filter(|n| committed_after(&self.committed, &self.pending) >= *n);
         let result = retrying("send_offsets_to_transaction", || {
             self.producer
                 .send_offsets_to_transaction(&tpl, &cgm, timeout)
         })
         .and_then(|_| {
+            if let Some(n) = failpoint {
+                self.fire_failpoint(n, timeout)?;
+            }
             retrying("commit_transaction", || {
                 self.producer.commit_transaction(timeout)
             })
@@ -422,6 +429,20 @@ impl<J: Job> Processor<J> {
         tracing::debug!(records = self.txn_records, "transaction committed");
         self.update_gauges();
         Ok(())
+    }
+
+    /// Test only (docs/DESIGN.md, Failpoint): the outputs, changelog records and offsets of the open
+    /// transaction are already sent; flush them to the broker, then SIGKILL before commit_transaction.
+    fn fire_failpoint(&self, at: i64, timeout: Duration) -> Result<(), KafkaError> {
+        self.producer.flush(timeout)?;
+        tracing::warn!(
+            failpoint_at_offsets = at,
+            committed_after = committed_after(&self.committed, &self.pending),
+            "TELEMETRY_FAILPOINT_AT_OFFSETS reached: SIGKILL before commit_transaction"
+        );
+        // SAFETY: kill(2) on our own pid has no memory-safety preconditions.
+        unsafe { libc::kill(libc::getpid(), libc::SIGKILL) };
+        std::process::abort()
     }
 
     /// Abort, discard staged state, and seek every assigned partition back to its committed offset.
@@ -759,4 +780,25 @@ fn restore(
         "restored state store"
     );
     Ok(())
+}
+
+/// Committed input offsets, summed over partitions, once the open transaction commits.
+fn committed_after(committed: &HashMap<Tp, i64>, pending: &HashMap<Tp, i64>) -> i64 {
+    let mut next = committed.clone();
+    next.extend(pending.iter().map(|(tp, o)| (tp.clone(), *o)));
+    next.values().sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn committed_after_counts_pending_over_committed() {
+        let tp = |p| ("in".to_string(), p);
+        let committed = HashMap::from([(tp(0), 5), (tp(1), 3)]);
+        let pending = HashMap::from([(tp(0), 9), (tp(2), 4)]);
+        assert_eq!(committed_after(&committed, &pending), 9 + 3 + 4);
+        assert_eq!(committed_after(&committed, &HashMap::new()), 8);
+    }
 }
