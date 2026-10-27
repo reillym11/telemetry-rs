@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/telemetry-core", "jobs/ota-status-tracker"]
+members = ["crates/telemetry-core", "jobs/ota-status-tracker", "jobs/charging-session-builder"]
 
 [workspace.package]
 edition = "2021"
@@ -24,6 +24,7 @@ anyhow = "=1.0.104"
 libc = "=0.2.191"
 jsonschema = { version = "=0.56.0", default-features = false }
 proptest = "=1.9.0"
+uuid = { version = "=1.29.0", default-features = false, features = ["v5"] }
 telemetry-core = { path = "crates/telemetry-core" }
 
 [profile.release]
