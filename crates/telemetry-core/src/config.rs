@@ -30,6 +30,8 @@ pub struct Config {
     pub txn_timeout: Duration,
     pub metrics_port: u16,
     pub log_level: String,
+    /// `TELEMETRY_FAILPOINT_AT_OFFSETS`: test only, see docs/DESIGN.md (Failpoint).
+    pub failpoint_at_offsets: Option<i64>,
 }
 
 impl Config {
@@ -87,6 +89,10 @@ impl Config {
             metrics_port: u16::try_from(num("METRICS_PORT", 9090)?)
                 .context("METRICS_PORT is out of range")?,
             log_level: get("LOG_LEVEL").unwrap_or_else(|| "info".into()),
+            failpoint_at_offsets: match get("TELEMETRY_FAILPOINT_AT_OFFSETS") {
+                Some(_) => Some(num("TELEMETRY_FAILPOINT_AT_OFFSETS", 0)? as i64),
+                None => None,
+            },
         })
     }
 
@@ -133,6 +139,7 @@ mod tests {
             (500, 200, 60_000)
         );
         assert_eq!(c.metrics_port, 9090);
+        assert_eq!(c.failpoint_at_offsets, None);
         assert_eq!(
             c.state_topic("latest"),
             "rust.ota-status-tracker.state.latest"
@@ -149,6 +156,11 @@ mod tests {
             (c.group_instance_id.as_str(), c.batch_max_records),
             ("pod-0", 5)
         );
+        env.insert("TELEMETRY_FAILPOINT_AT_OFFSETS", "18");
+        assert_eq!(parse(&env).unwrap().failpoint_at_offsets, Some(18));
+        env.insert("TELEMETRY_FAILPOINT_AT_OFFSETS", "-1");
+        assert!(parse(&env).is_err());
+        env.remove("TELEMETRY_FAILPOINT_AT_OFFSETS");
         env.insert("OUTPUT_PATH", "s3a://x");
         assert!(parse(&env).is_err());
         env.remove("OUTPUT_PATH");

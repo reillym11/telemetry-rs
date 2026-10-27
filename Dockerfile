@@ -5,8 +5,11 @@ ARG RUST_IMAGE=${REGISTRY}/rust:1.98.1-slim-bookworm@sha256:ff521445a372125ed4f7
 ARG RUNTIME_IMAGE=${REGISTRY}/debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 
 FROM ${RUST_IMAGE} AS chef
+# Retry brief network failures: apt, rustup (the rust-toolchain.toml components) and cargo downloads.
+ENV RUSTUP_MAX_RETRIES=10 CARGO_NET_RETRY=10
 # librdkafka is built from source by rdkafka-sys (cmake-build feature, no SSL or SASL).
-RUN apt-get update && apt-get install -y --no-install-recommends cmake g++ make \
+RUN echo 'Acquire::Retries "10";' > /etc/apt/apt.conf.d/80-retries \
+    && apt-get update && apt-get install -y --no-install-recommends cmake g++ make \
     && rm -rf /var/lib/apt/lists/* \
     && cargo install cargo-chef --version 0.1.78 --locked
 WORKDIR /src
