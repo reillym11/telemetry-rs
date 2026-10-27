@@ -50,7 +50,9 @@ environment variables:
 |---|---|---|
 | `KAFKA_BOOTSTRAP` | required | |
 | `INPUT_TOPICS` | required | comma-separated |
-| `OUTPUT_TOPIC` | required | `OUTPUT_PATH` is not supported yet |
+| `OUTPUT_TOPIC` | required, or `OUTPUT_PATH` | |
+| `OUTPUT_PATH` | | Parquet sink, `s3a://bucket/prefix`; see docs/DESIGN.md |
+| `S3_ENDPOINT` | AWS | object store endpoint for `OUTPUT_PATH` |
 | `CONSUMER_GROUP` | required | |
 | `TRANSACTIONAL_ID` | required | one live process per id |
 | `GROUP_INSTANCE_ID` | `TRANSACTIONAL_ID` | static membership |

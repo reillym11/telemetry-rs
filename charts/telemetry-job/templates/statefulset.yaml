@@ -39,8 +39,29 @@ spec:
               value: {{ .Values.kafka.bootstrap | quote }}
             - name: INPUT_TOPICS
               value: {{ required "inputTopics is required" .Values.inputTopics | quote }}
+            {{- if .Values.outputPath }}
+            - name: OUTPUT_PATH
+              value: {{ .Values.outputPath | quote }}
+            {{- with .Values.s3.endpoint }}
+            - name: S3_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.s3.credentialsSecret }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: AWS_SECRET_ACCESS_KEY
+            {{- end }}
+            {{- else }}
             - name: OUTPUT_TOPIC
-              value: {{ required "outputTopic is required" .Values.outputTopic | quote }}
+              value: {{ required "outputTopic or outputPath is required" .Values.outputTopic | quote }}
+            {{- end }}
             - name: CONSUMER_GROUP
               value: {{ required "consumerGroup is required" .Values.consumerGroup | quote }}
             - name: TRANSACTIONAL_ID

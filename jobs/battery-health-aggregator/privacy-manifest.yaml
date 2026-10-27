@@ -1,0 +1,53 @@
+# Privacy manifest for battery-health-aggregator. telemetry-parity check E4 compares inputs, outputs,
+# state_stores and sensitive_fields with what it observes; the other keys document the job.
+# Names are the harness names: the output is the S3 prefix <run-id>/rust/battery_health_hourly in the
+# telemetry-lake bucket, and the state topics are rust.<job>.state.<store>. In production the output
+# is s3a://telemetry-lake/battery_health_hourly and the state topics are <STATE_TOPIC_PREFIX>.buckets
+# and .watermark.
+inputs: [vehicle.battery.health.v1]
+outputs: [rust/battery_health_hourly]
+state_stores: [rust.battery-health-aggregator.state.buckets, rust.battery-health-aggregator.state.watermark]
+sensitive_fields:
+  rust/battery_health_hourly: [vin]
+  rust.battery-health-aggregator.state.buckets: [vin]
+
+fields_read:
+  vehicle.battery.health.v1:
+    event_id: none
+    vin: vehicle-id
+    event_time: none
+    event_type: none
+    soh_pct: none
+    cell_voltage_delta_mv: none
+    pack_temp_c: none
+fields_written:
+  battery.health.hourly:
+    vin: vehicle-id
+    date: none
+    window_start: none
+    window_end: none
+    sample_count: none
+    soh_pct_min: none
+    soh_pct_avg: none
+    cell_voltage_delta_mv_min: none
+    cell_voltage_delta_mv_max: none
+    pack_temp_c_max: none
+state:
+  buckets:
+    topic: <STATE_TOPIC_PREFIX>.buckets
+    cleanup_policy: compact
+    key: '"vin" as a JSON string'
+    value_fields: [vin, pending and arrived (event_id, event_time_ms, event_type, soh_pct, cell_voltage_delta_mv, pack_temp_c), max_seen_ms, emitted_until_ms]
+    sensitive_fields: [vin]
+    retention: none; one record per vin, kept until compaction replaces it. Samples leave the value once their hour is emitted; arrived holds the open batch's records until the batch ends
+    legacy: the Spark job held the same per-VIN state (BucketState) in its checkpoint directory (flatMapGroupsWithState state store), not in Kafka
+  watermark:
+    topic: <STATE_TOPIC_PREFIX>.watermark
+    cleanup_policy: compact
+    key: '"watermark" as a JSON string'
+    value_fields: [the event-time watermark in epoch milliseconds]
+    sensitive_fields: []
+    retention: none; one record, replaced at each batch end that advances the watermark
+    legacy: Spark kept the watermark in its checkpoint offset log
+transformations:
+  vin: copied unchanged into the Parquet output and the state topic key and value; not in any S3 object key; never logged

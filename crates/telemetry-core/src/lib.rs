@@ -4,6 +4,7 @@
 pub mod config;
 pub mod job;
 pub mod metrics;
+pub mod parquet_sink;
 mod processor;
 mod server;
 pub mod state;
@@ -15,6 +16,7 @@ use std::time::Duration;
 
 pub use config::{Config, Sink};
 pub use job::{Job, Record};
+pub use parquet_sink::{Column, ColumnType, ParquetSpec};
 pub use state::{KeyedState, StateStore};
 
 /// Hard limit after SIGTERM or SIGINT, below the chart's terminationGracePeriodSeconds (30).

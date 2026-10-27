@@ -76,8 +76,9 @@ so a partition's state moves with the partition on rebalance.
    Run `full` without chaos and with `--chaos-at 0.75` too.
 4. Open the PR with the `port` template (`?template=port.md`). CI runs parity for every `jobs/<job>/privacy-manifest.yaml` and lints every `charts/telemetry-job/values/<job>.yaml`.
 
-## Not supported yet
+## Parquet output
 
-`OUTPUT_PATH` (Parquet on S3, needed by `battery-health-aggregator`) is rejected at startup. A Parquet
-sink has to be added to `telemetry-core` before that job can be ported; it needs its own
-exactly-once design, because an object store write is not part of the Kafka transaction.
+A job whose legacy sink is a path sets `OUTPUT_PATH` (`s3a://bucket/prefix`) instead of `OUTPUT_TOPIC`
+and returns a `ParquetSpec` from `Job::parquet`: the columns, their Parquet types, and the partition
+column. `encode` returns the row as a JSON object; the record key is unused. See docs/DESIGN.md,
+Parquet sink.

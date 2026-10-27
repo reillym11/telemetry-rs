@@ -137,9 +137,21 @@ lands after some of them have committed.
   2.12.1) includes `curl/curl.h` even when curl is disabled, so a CMake build without curl fails.
 - `tokio 1.53.3` and `anyhow 1.0.104` fix RUSTSEC-2026-0386 and RUSTSEC-2026-0190.
 
+## Parquet sink
+
+With `OUTPUT_PATH`, `telemetry-core` buffers the transaction's rows and, before it sends the input
+offsets to the Kafka transaction, uploads one Snappy file per partition value:
+`<OUTPUT_PATH>/<column>=<value>/part-<committed input offset total at transaction start>.parquet`.
+The partition column is only in the directory name, as with Spark's `partitionBy`. If the
+transaction aborts, its files are deleted. On assignment, before processing, files whose number is
+at or above the committed total belong to transactions that never committed and are deleted. A
+listing therefore sees each committed row once. `S3_ENDPOINT` selects a non-AWS store; credentials
+come from the AWS environment.
+
 ## Known limits
 
-- `OUTPUT_PATH` (Parquet) is not implemented; the runtime rejects it at startup.
+- The Parquet sink names files by the committed input offset total, which spans every input
+  partition, so a Parquet job runs one replica (the chart default).
 - `Job::end_batch` sees only the partitions assigned to this process, so a watermark kept by a job is
   per process. That matches Spark's global watermark with one replica, the chart default.
 - One process per `transactional.id`. Scaling out means more StatefulSet replicas, each with its own

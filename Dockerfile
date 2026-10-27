@@ -27,6 +27,8 @@ RUN cargo build --release --locked --bin ${JOB} && cp target/release/${JOB} /job
 
 FROM ${RUNTIME_IMAGE}
 RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin telemetry
+# CA roots for the HTTPS object store client of Parquet jobs (OUTPUT_PATH).
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /job /usr/local/bin/job
 USER 10001
 EXPOSE 9090

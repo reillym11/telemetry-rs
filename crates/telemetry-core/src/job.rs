@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 
+use crate::parquet_sink::ParquetSpec;
 use crate::state::StateStore;
 
 /// One encoded output record. The key decides the partition (murmur2, as the Java client does).
@@ -32,6 +33,12 @@ pub trait Job: Send + 'static {
     /// writes go to each existing key's own partition. The default does nothing.
     fn end_batch(&mut self) -> Result<Vec<Self::Output>> {
         Ok(Vec::new())
+    }
+
+    /// For a job whose output is `OUTPUT_PATH`: the Parquet columns `encode`'s JSON value maps to.
+    /// The key of each [`Record`] is then unused. The default is `None` (Kafka output only).
+    fn parquet(&self) -> Option<ParquetSpec> {
+        None
     }
 
     fn encode(&self, output: &Self::Output) -> Result<Record>;

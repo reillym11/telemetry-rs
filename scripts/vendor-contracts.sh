@@ -15,7 +15,7 @@ cp "$dc/contracts/common.schema.json" "$dc/contracts/topics.yaml" .
 cp -r "$dc/contracts/topics" topics
 mkdir -p fixtures golden
 cp -r "$dc/fixtures/sample" fixtures/sample
-for job in ota-status-tracker charging-session-builder; do
+for job in ota-status-tracker charging-session-builder battery-health-aggregator; do
   cp -r "$tp/golden/sample/$job" "golden/$job"
 done
 echo "vendored data-contracts@$DATA_CONTRACTS_SHA telemetry-parity@$TELEMETRY_PARITY_SHA"

@@ -1,0 +1,10 @@
+job: battery-health-aggregator
+image:
+  repository: ghcr.io/reillym11/telemetry-rs/battery-health-aggregator
+  tag: "0.1.0"
+inputTopics: vehicle.battery.health.v1
+# Parquet sink (topics.yaml battery.health.hourly). Exactly once needs a single replica.
+outputPath: s3a://telemetry-lake/battery_health_hourly
+consumerGroup: battery-health-aggregator
+transactionalIdPrefix: battery-health-aggregator
+stateTopicPrefix: battery-health-aggregator.state

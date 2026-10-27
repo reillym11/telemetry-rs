@@ -20,6 +20,7 @@ use tokio::runtime::Handle;
 use crate::config::{Config, Sink};
 use crate::job::Job;
 use crate::metrics::{Metrics, PartitionLabels, StoreLabels};
+use crate::parquet_sink::ParquetSink;
 use crate::state::StateStore;
 
 type Tp = (String, i32);
@@ -153,10 +154,16 @@ fn tps(tpl: &TopicPartitionList) -> Vec<Tp> {
         .collect()
 }
 
+enum Output {
+    Topic(String),
+    Parquet(ParquetSink),
+}
+
 pub struct Processor<J: Job> {
     cfg: Config,
     job: J,
-    output_topic: String,
+    output: Output,
+    rt: Handle,
     consumer: BaseConsumer<Ctx>,
     producer: Arc<TxProducer>,
     metrics: Arc<Metrics>,
@@ -186,10 +193,13 @@ impl<J: Job> Processor<J> {
         shutdown: Arc<AtomicBool>,
         rt: Handle,
     ) -> Result<Self> {
-        let output_topic = match &cfg.sink {
-            Sink::Topic(t) => t.clone(),
-            Sink::Path(_) => {
-                bail!("this runtime writes Kafka outputs only; OUTPUT_PATH is not supported yet")
+        let output = match &cfg.sink {
+            Sink::Topic(t) => Output::Topic(t.clone()),
+            Sink::Path(p) => {
+                let spec = job
+                    .parquet()
+                    .context("OUTPUT_PATH is set but this job does not write Parquet")?;
+                Output::Parquet(ParquetSink::new(p, cfg.s3_endpoint.as_deref(), spec)?)
             }
         };
         let producer: Arc<TxProducer> = Arc::new(
@@ -247,7 +257,8 @@ impl<J: Job> Processor<J> {
         Ok(Processor {
             cfg,
             job,
-            output_topic,
+            output,
+            rt,
             consumer,
             producer,
             metrics,
@@ -400,12 +411,13 @@ impl<J: Job> Processor<J> {
     fn send_outputs(&mut self, outputs: &[J::Output]) -> Result<()> {
         for o in outputs {
             let r = self.job.encode(o)?;
-            send(
-                &self.producer,
-                BaseRecord::to(&self.output_topic)
-                    .key(&r.key)
-                    .payload(&r.value),
-            )?;
+            match &mut self.output {
+                Output::Topic(t) => send(
+                    &self.producer,
+                    BaseRecord::to(t.as_str()).key(&r.key).payload(&r.value),
+                )?,
+                Output::Parquet(sink) => sink.push(&r.value)?,
+            }
             self.metrics.records_out.inc();
         }
         let prefix = self.cfg.state_topic_prefix.clone();
@@ -436,6 +448,10 @@ impl<J: Job> Processor<J> {
             .consumer
             .group_metadata()
             .context("consumer group metadata")?;
+        if let Output::Parquet(sink) = &mut self.output {
+            let start_total = self.committed.values().sum::<i64>();
+            sink.write(start_total, &self.rt)?;
+        }
         let timeout = self.cfg.txn_timeout;
         let failpoint = self
             .cfg
@@ -465,6 +481,9 @@ impl<J: Job> Processor<J> {
             .store(false, Ordering::SeqCst);
         for s in self.job.stores() {
             s.commit();
+        }
+        if let Output::Parquet(sink) = &mut self.output {
+            sink.committed();
         }
         self.committed.extend(self.pending.drain());
         self.txn_started = None;
@@ -506,7 +525,7 @@ impl<J: Job> Processor<J> {
             })
             .context("abort_transaction")?;
         }
-        self.discard_txn();
+        self.discard_txn()?;
         let mut tpl = TopicPartitionList::new();
         for tp in &self.assigned {
             let o = self
@@ -529,14 +548,18 @@ impl<J: Job> Processor<J> {
         Ok(())
     }
 
-    fn discard_txn(&mut self) {
+    fn discard_txn(&mut self) -> Result<()> {
         for s in self.job.stores() {
             s.abort();
+        }
+        if let Output::Parquet(sink) = &mut self.output {
+            sink.abort(&self.rt)?;
         }
         self.pending.clear();
         self.txn_started = None;
         self.txn_records = 0;
         self.metrics.txn_aborted.inc();
+        Ok(())
     }
 
     fn handle_events(&mut self) -> Result<()> {
@@ -560,7 +583,7 @@ impl<J: Job> Processor<J> {
                     }
                     if aborted {
                         tracing::info!("open transaction aborted on revoke");
-                        self.discard_txn();
+                        self.discard_txn()?;
                     }
                     for tp in &partitions {
                         self.assigned.remove(tp);
@@ -609,6 +632,11 @@ impl<J: Job> Processor<J> {
                 self.committed
                     .insert((e.topic().to_string(), e.partition()), o);
             }
+        }
+        if let Output::Parquet(sink) = &self.output {
+            let deleted =
+                sink.delete_uncommitted(self.committed.values().sum::<i64>(), &self.rt)?;
+            tracing::info!(deleted, "deleted parquet files of uncommitted transactions");
         }
         let numbers: BTreeSet<i32> = partitions.iter().map(|(_, p)| *p).collect();
         let start = Instant::now();

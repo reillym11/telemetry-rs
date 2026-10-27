@@ -1,0 +1,21 @@
+[package]
+name = "battery-health-aggregator"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+telemetry-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
+proptest.workspace = true
+parquet.workspace = true
+arrow-array.workspace = true
+bytes = "=1.12.1"

@@ -9,6 +9,13 @@ kafka:
   bootstrap: kafka:9092
 inputTopics: ""
 outputTopic: ""
+# Parquet jobs set outputPath (s3a://bucket/prefix) instead of outputTopic.
+outputPath: ""
+s3:
+  # S3_ENDPOINT, for a non-AWS object store.
+  endpoint: ""
+  # Secret with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY; empty uses the pod's AWS identity.
+  credentialsSecret: ""
 consumerGroup: ""
 # TRANSACTIONAL_ID and GROUP_INSTANCE_ID are <transactionalIdPrefix>-<pod name>, stable across restarts.
 transactionalIdPrefix: ""
