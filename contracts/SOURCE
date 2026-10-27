@@ -2,4 +2,4 @@
 # schemas, topics.yaml, fixtures/sample: data-contracts at this commit
 DATA_CONTRACTS_SHA=b4ba80f4c6c69309620462898fc47b9e0dc72770
 # golden/<job>/: telemetry-parity golden/sample/<job> at this commit; CI runs this harness version
-TELEMETRY_PARITY_SHA=c68f78f263fe3c35b3d1a8c5bb1efce784077644
+TELEMETRY_PARITY_SHA=71f2fc4abef264d001ff425fa3b9c15100ea20f9

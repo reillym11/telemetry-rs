@@ -1,0 +1,54 @@
+# Privacy manifest for diagnostics-dtc-router. telemetry-parity check E4 compares inputs, outputs,
+# state_stores and sensitive_fields with what it observes; the other keys document the job.
+# Topic names are the harness names (rust.<topic>, rust.<job>.state.<store>). In production the
+# output is service.dtc.alerts.v1 and the state topics are <STATE_TOPIC_PREFIX>.seen and .watermark.
+inputs: [vehicle.diagnostics.dtc.v1]
+outputs: [rust.service.dtc.alerts.v1]
+state_stores: [rust.diagnostics-dtc-router.state.seen, rust.diagnostics-dtc-router.state.watermark]
+sensitive_fields:
+  rust.service.dtc.alerts.v1: [alert_id, vin, lat, lon]
+
+fields_read:
+  vehicle.diagnostics.dtc.v1:
+    event_id: none
+    vin: vehicle-id
+    event_time: none
+    event_type: none
+    severity: none
+    status: none
+    dtc_code: none
+    ecu: none
+    lat: precise-location
+    lon: precise-location
+fields_written:
+  service.dtc.alerts.v1:
+    alert_id: vehicle-id
+    vin: vehicle-id
+    dtc_code: none
+    severity: none
+    ecu: none
+    event_time: none
+    lat: coarse-location
+    lon: coarse-location
+state:
+  seen:
+    topic: <STATE_TOPIC_PREFIX>.seen
+    cleanup_policy: compact
+    key: event_id as a JSON string
+    value_fields: [expires_at_ms]
+    sensitive_fields: []
+    retention: one record per routable event_id until the watermark passes event_time + 10 minutes, then a tombstone
+    legacy: the Spark job held the same event_id -> expiry state in its checkpoint directory (dropDuplicatesWithinWatermark state store), not in Kafka
+  watermark:
+    topic: <STATE_TOPIC_PREFIX>.watermark
+    cleanup_policy: compact
+    key: '"watermark" and "max_event_time" as JSON strings'
+    value_fields: [epoch milliseconds]
+    sensitive_fields: []
+    retention: two records, replaced by compaction
+    legacy: Spark kept the watermark in the checkpoint offset log
+transformations:
+  vin: copied unchanged into the output value and the output key; not stored in state; never logged
+  alert_id: derived, UUIDv5 (namespace f5179d15-0fd7-5b5f-bf53-0852eb22d3d5) over the lowercased event_id, as Ids.alertId
+  lat: GeoUtils.coarsen, rounded to 2 decimals with HALF_EVEN on the decimal form of the parsed double; null if lat or lon is null; precise value is not stored in state or logged
+  lon: same as lat

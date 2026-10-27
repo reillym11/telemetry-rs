@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/telemetry-core", "jobs/ota-status-tracker", "jobs/charging-session-builder"]
+members = ["crates/telemetry-core", "jobs/ota-status-tracker", "jobs/charging-session-builder", "jobs/diagnostics-dtc-router"]
 
 [workspace.package]
 edition = "2021"
