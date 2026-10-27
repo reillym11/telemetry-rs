@@ -569,6 +569,10 @@ impl<J: Job> Processor<J> {
                             end.remove(tp);
                         }
                     }
+                    // A batch with no partitions left would end on the next record, whatever is assigned next.
+                    if self.batch_end.as_ref().is_some_and(|end| end.is_empty()) {
+                        self.batch_end = None;
+                    }
                     let dropped: Vec<i32> = partitions
                         .iter()
                         .map(|(_, p)| *p)
