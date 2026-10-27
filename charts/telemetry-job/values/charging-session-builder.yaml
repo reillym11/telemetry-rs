@@ -1,6 +1,6 @@
 job: charging-session-builder
 image:
-  repository: registry.gitlab.com/congition-demo-group/telemetry-rs/charging-session-builder
+  repository: ghcr.io/reillym11/telemetry-rs/charging-session-builder
   tag: "0.1.0"
 inputTopics: vehicle.charging.events.v1
 outputTopic: charging.sessions.v1

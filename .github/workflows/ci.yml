@@ -1,0 +1,112 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            code:
+              - crates/**
+              - jobs/**
+              - Cargo.*
+              - Dockerfile
+              - contracts/**
+              - .github/workflows/ci.yml
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.1"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit@0.22.2
+      - run: cargo audit
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.22.0
+      - name: helm
+        run: |
+          for v in charts/telemetry-job/values/*.yaml; do
+            j=$(basename "$v" .yaml)
+            helm lint charts/telemetry-job -f "$v"
+            helm template "$j" charts/telemetry-job -f "$v" --set serviceMonitor.enabled=true >/dev/null
+          done
+
+  # Sample (failpoint chaos) and edge parity for every job, on one runner so the Spark image is pulled once.
+  parity:
+    needs: checks
+    if: needs.checks.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+        id: buildx
+        with:
+          use: false
+      - uses: crazy-max/ghaction-github-runtime@v3
+      - name: Build images
+        run: |
+          for m in jobs/*/privacy-manifest.yaml; do
+            j=$(basename "$(dirname "$m")")
+            docker buildx build --builder "${{ steps.buildx.outputs.name }}" --load --build-arg JOB="$j" \
+              --cache-from type=gha,scope="$j" --cache-to type=gha,mode=max,scope="$j" -t "telemetry-rs/$j:ci" .
+            # BATCH_MAX_RECORDS=5 so the sample fixture spans several transactions before the failpoint.
+            printf 'FROM telemetry-rs/%s:ci\nENV BATCH_MAX_RECORDS=5\n' "$j" | docker build -q -t "telemetry-rs/$j:ci-chaos" -
+          done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: parity
+        env:
+          GIT_BASE: https://github.com/reillym11
+          RS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          source contracts/SOURCE
+          git clone -q "$GIT_BASE/telemetry-parity.git" parity
+          git -C parity checkout -q "$TELEMETRY_PARITY_SHA"
+          sed -i "s/^TELEMETRY_RS_SHA=.*/TELEMETRY_RS_SHA=$RS_SHA/" parity/deps.lock
+          cd parity
+          pip install -q -r requirements.txt
+          scripts/fetch-deps.sh
+          source deps.lock
+          img="ghcr.io/reillym11/telemetry-parity/spark-runner:${TELEMETRY_SPARK_JOBS_SHA:0:12}"
+          if docker pull -q "$img"; then export SPARK_RUNNER_IMAGE="$img"; fi
+          for m in "$GITHUB_WORKSPACE"/jobs/*/privacy-manifest.yaml; do
+            j=$(basename "$(dirname "$m")")
+            RUST_IMAGE="telemetry-rs/$j:ci-chaos" ./run.sh --job "$j" --fixture sample --chaos --chaos-mode failpoint --manifest "$m" || status=1
+            RUST_IMAGE="telemetry-rs/$j:ci" ./run.sh --job "$j" --fixture edge --manifest "$m" || status=1
+          done
+          exit ${status:-0}
+      - name: Harness errors
+        if: failure()
+        run: for f in parity/runs/*/harness-error.txt; do [ -f "$f" ] && { cat "$f"; tail -n 40 "$(dirname "$f")/rust-job.log"; }; done; true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parity-report
+          path: parity/runs/
+          retention-days: 30

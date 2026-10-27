@@ -1,6 +1,6 @@
 job: ota-status-tracker
 image:
-  repository: registry.gitlab.com/congition-demo-group/telemetry-rs/ota-status-tracker
+  repository: ghcr.io/reillym11/telemetry-rs/ota-status-tracker
   tag: "0.1.0"
 inputTopics: vehicle.ota.status.v1
 outputTopic: ota.status.latest.v1
