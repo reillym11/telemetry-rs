@@ -55,7 +55,7 @@ state:
     key: '"vin|slot" as a JSON string (slot 0, 1, ... in arrival order within the batch)'
     value_fields: [vin, event (event_id, vin, event_time_ms, event_type, producer_seq, fleet, market, connector_type, charger_type, power_kw, energy_added_kwh, soc_pct, charger_lat, charger_lon, or null)]
     sensitive_fields: [vin, charger_lat, charger_lon]
-    retention: a slot holds an input event only while its batch is open; the batch end overwrites it with {vin, event: null} (no tombstone), so charger_lat and charger_lon leave the latest value; slots are reused, at most the VIN's largest batch
+    retention: 'a slot holds an input event only while its batch is open; the batch end overwrites it with {vin, event: null} (no tombstone), so charger_lat and charger_lon leave the latest value; slots are reused, at most the VIN''s largest batch'
     legacy: the rows of the running Spark micro-batch, in Spark's shuffle and Kafka source, not in Kafka
   sessions:
     topic: <STATE_TOPIC_PREFIX>.sessions
